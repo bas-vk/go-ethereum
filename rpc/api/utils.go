@@ -42,6 +42,8 @@ var (
 			"datadir",
 			"startRPC",
 			"stopRPC",
+			"startWS",
+			"stopWS",
 		},
 		"db": []string{
 			"getString",

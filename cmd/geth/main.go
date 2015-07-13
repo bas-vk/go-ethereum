@@ -299,6 +299,11 @@ JavaScript API. See https://github.com/ethereum/go-ethereum/wiki/Javascipt-Conso
 		utils.RPCListenAddrFlag,
 		utils.RPCPortFlag,
 		utils.RpcApiFlag,
+		utils.WSEnabledFlag,
+		utils.WSListenAddrFlag,
+		utils.WSPortFlag,
+		utils.WSApiFlag,
+		utils.WSCORSDomainFlag,
 		utils.IPCDisabledFlag,
 		utils.IPCApiFlag,
 		utils.IPCPathFlag,
@@ -534,6 +539,11 @@ func startEth(ctx *cli.Context, eth *eth.Ethereum) {
 	if ctx.GlobalBool(utils.RPCEnabledFlag.Name) {
 		if err := utils.StartRPC(eth, ctx); err != nil {
 			utils.Fatalf("Error starting RPC: %v", err)
+		}
+	}
+	if ctx.GlobalBool(utils.WSEnabledFlag.Name) {
+		if err := utils.StartWS(eth, ctx); err != nil {
+			utils.Fatalf("Error starting WS: %v", err)
 		}
 	}
 	if ctx.GlobalBool(utils.MiningEnabledFlag.Name) {

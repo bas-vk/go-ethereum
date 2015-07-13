@@ -1,19 +1,4 @@
-// Copyright 2015 The go-ethereum Authors
-// This file is part of go-ethereum.
-//
-// go-ethereum is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// go-ethereum is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with go-ethereum.  If not, see <http://www.gnu.org/licenses/>.
-
+// this package holds the supported communication methods for the rpc interface
 package comms
 
 import (
@@ -29,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/logger/glog"
 	"github.com/ethereum/go-ethereum/rpc/codec"
 	"github.com/ethereum/go-ethereum/rpc/shared"
+	"math/rand"
 )
 
 const (
@@ -59,17 +45,23 @@ type EthereumClient interface {
 	SupportedModules() (map[string]string, error)
 }
 
+func newConnId() int {
+	return rand.Int() % 1000000
+}
+
 func handle(id int, conn net.Conn, api shared.EthereumApi, c codec.Codec) {
 	codec := c.New(conn)
 
 	for {
+		fmt.Println("before readrequest")
 		requests, isBatch, err := codec.ReadRequest()
+		fmt.Println("after readrequest")
 		if err == io.EOF {
 			codec.Close()
 			return
 		} else if err != nil {
 			codec.Close()
-			glog.V(logger.Debug).Infof("Closed IPC Conn %06d recv err - %v\n", id, err)
+			glog.V(logger.Debug).Infof("Closed conn %06d recv err - %v\n", id, err)
 			return
 		}
 

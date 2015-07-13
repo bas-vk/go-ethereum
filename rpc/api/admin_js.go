@@ -70,6 +70,18 @@ web3._extend({
 			inputFormatter: []
 		}),
 		new web3._extend.Method({
+			name: 'startWS',
+			call: 'admin_startWS',
+			params: 4,
+			inputFormatter: [null, null, null, null]
+		}),
+		new web3._extend.Method({
+			name: 'stopWS',
+			call: 'admin_stopWS',
+			params: 0,
+			inputFormatter: []
+		}),
+		new web3._extend.Method({
 			name: 'setGlobalRegistrar',
 			call: 'admin_setGlobalRegistrar',
 			params: 2,

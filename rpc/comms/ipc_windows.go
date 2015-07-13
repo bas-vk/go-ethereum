@@ -684,7 +684,7 @@ func startIpc(cfg IpcConfig, codec codec.Codec, api shared.EthereumApi) error {
 				continue
 			}
 
-			id := newIpcConnId()
+			id := newConnId()
 			glog.V(logger.Debug).Infof("New IPC connection with id %06d started\n", id)
 
 			go handle(id, conn, api, codec)

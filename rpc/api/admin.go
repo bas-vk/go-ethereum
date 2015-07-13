@@ -59,6 +59,8 @@ var (
 		"admin_datadir":            (*adminApi).DataDir,
 		"admin_startRPC":           (*adminApi).StartRPC,
 		"admin_stopRPC":            (*adminApi).StopRPC,
+		"admin_startWS":            (*adminApi).StartWS,
+		"admin_stopWS":             (*adminApi).StopWS,
 		"admin_setGlobalRegistrar": (*adminApi).SetGlobalRegistrar,
 		"admin_setHashReg":         (*adminApi).SetHashReg,
 		"admin_setUrlHint":         (*adminApi).SetUrlHint,
@@ -280,6 +282,35 @@ func (self *adminApi) StartRPC(req *shared.Request) (interface{}, error) {
 
 func (self *adminApi) StopRPC(req *shared.Request) (interface{}, error) {
 	comms.StopHttp()
+	return true, nil
+}
+
+func (self *adminApi) StartWS(req *shared.Request) (interface{}, error) {
+	args := new(StartRPCArgs)
+	if err := self.coder.Decode(req.Params, &args); err != nil {
+		return nil, shared.NewDecodeParamError(err.Error())
+	}
+
+	cfg := comms.HttpConfig{
+		ListenAddress: args.ListenAddress,
+		ListenPort:    args.ListenPort,
+		CorsDomain:    args.CorsDomain,
+	}
+
+	apis, err := ParseApiString(args.Apis, self.codec, self.xeth, self.ethereum)
+	if err != nil {
+		return false, err
+	}
+
+	err = comms.StartWS(cfg, Merge(apis...))
+	if err == nil {
+		return true, nil
+	}
+	return false, err
+}
+
+func (self *adminApi) StopWS(req *shared.Request) (interface{}, error) {
+	comms.StopWS()
 	return true, nil
 }
 

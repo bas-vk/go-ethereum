@@ -225,14 +225,38 @@ var (
 		Usage: "Port on which the JSON-RPC server should listen",
 		Value: 8545,
 	}
+	RpcApiFlag = cli.StringFlag{
+		Name:  "rpcapi",
+		Usage: "Specify the API's which are offered over the HTTP RPC interface",
+		Value: comms.DefaultHttpRpcApis,
+	}
 	RPCCORSDomainFlag = cli.StringFlag{
 		Name:  "rpccorsdomain",
 		Usage: "Domain on which to send Access-Control-Allow-Origin header",
 		Value: "",
 	}
-	RpcApiFlag = cli.StringFlag{
-		Name:  "rpcapi",
-		Usage: "Specify the API's which are offered over the HTTP RPC interface",
+	WSEnabledFlag = cli.BoolFlag{
+		Name: "ws",
+		Usage: "Enable the JSON-RPC websocket server",
+	}
+	WSListenAddrFlag = cli.StringFlag{
+		Name:  "wsaddr",
+		Usage: "Listening address for the JSON-RPC websocket server",
+		Value: "127.0.0.1",
+	}
+	WSPortFlag = cli.IntFlag{
+		Name:  "wsport",
+		Usage: "Port on which the JSON-RPC websocket server should listen",
+		Value: 8546,
+	}
+	WSCORSDomainFlag = cli.StringFlag{
+		Name:  "wscorsdomain",
+		Usage: "Domain on which to send Access-Control-Allow-Origin header from the websocket server",
+		Value: "",
+	}
+	WSApiFlag = cli.StringFlag{
+		Name:  "wsapi",
+		Usage: "Specify the API's which are offered over the HTTP RPC websocket interface",
 		Value: comms.DefaultHttpRpcApis,
 	}
 	IPCDisabledFlag = cli.BoolFlag{
@@ -508,6 +532,24 @@ func StartRPC(eth *eth.Ethereum, ctx *cli.Context) error {
 	}
 
 	return comms.StartHttp(config, codec, api.Merge(apis...))
+}
+
+func StartWS(eth *eth.Ethereum, ctx *cli.Context) error {
+	config := comms.HttpConfig{
+		ListenAddress: ctx.GlobalString(WSListenAddrFlag.Name),
+		ListenPort:    uint(ctx.GlobalInt(WSPortFlag.Name)),
+		CorsDomain:    ctx.GlobalString(WSCORSDomainFlag.Name),
+	}
+
+	xeth := xeth.New(eth, nil)
+	codec := codec.JSON
+
+	apis, err := api.ParseApiString(ctx.GlobalString(WSApiFlag.Name), codec, xeth, eth)
+	if err != nil {
+		return err
+	}
+
+	return comms.StartWS(config, api.Merge(apis...))
 }
 
 func StartPProf(ctx *cli.Context) {
