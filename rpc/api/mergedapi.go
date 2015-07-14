@@ -22,6 +22,7 @@ import (
 	"github.com/ethereum/go-ethereum/logger"
 	"github.com/ethereum/go-ethereum/logger/glog"
 	"github.com/ethereum/go-ethereum/rpc/shared"
+	"time"
 )
 
 const (
@@ -62,8 +63,10 @@ func (self *MergedApi) Methods() []string {
 func (self *MergedApi) Execute(req *shared.Request) (res interface{}, err error) {
 	reqId := rand.Intn(100000000)
 	glog.V(logger.Detail).Infof("REQ[%d]: %s %s", reqId, req.Method, req.Params)
+	start := time.Now()
 	defer func() {
-		glog.V(logger.Detail).Infof("RES[%d]: res %v, err - %v", reqId, res, err)
+		end := time.Now()
+		glog.V(logger.Detail).Infof("RES[%d/%v]: res %v, err - %v", reqId, end.Sub(start), res, err)
 	}()
 
 	if res, err = self.handle(req); res != nil {
