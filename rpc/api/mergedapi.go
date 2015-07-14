@@ -17,6 +17,8 @@
 package api
 
 import (
+	"math/rand"
+
 	"github.com/ethereum/go-ethereum/logger"
 	"github.com/ethereum/go-ethereum/logger/glog"
 	"github.com/ethereum/go-ethereum/rpc/shared"
@@ -57,16 +59,22 @@ func (self *MergedApi) Methods() []string {
 }
 
 // Call the correct API's Execute method for the given request
-func (self *MergedApi) Execute(req *shared.Request) (interface{}, error) {
-	glog.V(logger.Detail).Infof("%s %s", req.Method, req.Params)
+func (self *MergedApi) Execute(req *shared.Request) (res interface{}, err error) {
+	reqId := rand.Intn(100000000)
+	glog.V(logger.Detail).Infof("REQ[%d]: %s %s", reqId, req.Method, req.Params)
+	defer func() {
+		glog.V(logger.Detail).Infof("RES[%d]: res %v, err - %v", reqId, res, err)
+	}()
 
-	if res, _ := self.handle(req); res != nil {
-		return res, nil
+	if res, err = self.handle(req); res != nil {
+		return 
 	}
 	if api, found := self.methods[req.Method]; found {
-		return api.Execute(req)
+		res, err = api.Execute(req)
+		return
 	}
-	return nil, shared.NewNotImplementedError(req.Method)
+	res, err = nil, shared.NewNotImplementedError(req.Method)
+	return
 }
 
 func (self *MergedApi) Name() string {
