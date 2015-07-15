@@ -579,6 +579,7 @@ func (self *XEth) GetFilterType(id int) byte {
 }
 
 func (self *XEth) LogFilterChanged(id int) state.Logs {
+	defer end(start(fmt.Sprintf("XEth.LogFilterChanged(%d)", id)))
 	self.logMu.Lock()
 	defer self.logMu.Unlock()
 
@@ -589,6 +590,8 @@ func (self *XEth) LogFilterChanged(id int) state.Logs {
 }
 
 func (self *XEth) BlockFilterChanged(id int) []common.Hash {
+	defer end(start(fmt.Sprintf("XEth.BlockFilterChanged(%d)", id)))
+
 	self.blockMu.Lock()
 	defer self.blockMu.Unlock()
 
@@ -599,6 +602,8 @@ func (self *XEth) BlockFilterChanged(id int) []common.Hash {
 }
 
 func (self *XEth) TransactionFilterChanged(id int) []common.Hash {
+	defer end(start(fmt.Sprintf("XEth.TransactionFilterChanged(%d)", id)))
+
 	self.blockMu.Lock()
 	defer self.blockMu.Unlock()
 
@@ -608,7 +613,17 @@ func (self *XEth) TransactionFilterChanged(id int) []common.Hash {
 	return nil
 }
 
+func start(id string) (string, time.Time) {
+	return id, time.Now()
+}
+
+func end(id string, start time.Time) {
+	glog.V(logger.Debug).Infof("TIMER: %s - %.5fs", id, time.Now().Sub(start).Seconds())
+}
+
 func (self *XEth) Logs(id int) state.Logs {
+	defer end(start(fmt.Sprintf("XEth.Logs(%d)", id)))
+
 	self.logMu.Lock()
 	defer self.logMu.Unlock()
 
@@ -621,6 +636,7 @@ func (self *XEth) Logs(id int) state.Logs {
 }
 
 func (self *XEth) AllLogs(earliest, latest int64, skip, max int, address []string, topics [][]string) state.Logs {
+	defer end(start(fmt.Sprintf("XEth.AllLogs(%d, %d, %d, %d)", earliest, latest, skip, max)))
 	filter := core.NewFilter(self.backend)
 	filter.SetEarliestBlock(earliest)
 	filter.SetLatestBlock(latest)
