@@ -624,8 +624,8 @@ func end(id string, start time.Time) {
 func (self *XEth) Logs(id int) state.Logs {
 	defer end(start(fmt.Sprintf("XEth.Logs(%d)", id)))
 
-	self.logMu.Lock()
-	defer self.logMu.Unlock()
+//	self.logMu.Lock()
+//	defer self.logMu.Unlock()
 
 	filter := self.filterManager.GetFilter(id)
 	if filter != nil {
