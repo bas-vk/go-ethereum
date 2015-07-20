@@ -390,6 +390,7 @@ func (pool *TxPool) checkQueue() {
 		addq := addq[:0]
 		for hash, tx := range txs {
 			if tx.Nonce() < trueNonce {
+				glog.V(logger.Warn).Info("DBG Remove %s from pool %d < %d\n", tx.Hash().Hex(), tx.Nonce(), trueNonce)
 				// Drop queued transactions whose nonce is lower than
 				// the account nonce because they have been processed.
 				delete(txs, hash)
@@ -404,6 +405,7 @@ func (pool *TxPool) checkQueue() {
 		for i, e := range addq {
 			// start deleting the transactions from the queue if they exceed the limit
 			if i > maxQueued {
+				glog.V(logger.Warn).Info("DBG Remove %s from pool, too many queued %d > %d\n", e.Hash().Hex(), i, maxQueued)
 				delete(pool.queue[address], e.hash)
 				continue
 			}
@@ -414,6 +416,7 @@ func (pool *TxPool) checkQueue() {
 						glog.Infof("Queued tx limit exceeded for %s. Tx %s removed\n", common.PP(address[:]), common.PP(e.hash[:]))
 					}
 					for j := i + maxQueued; j < len(addq); j++ {
+						glog.V(logger.Warn).Info("DBG Remove %s from pool, tx limit reached\n", addq[j].hash.Hex())
 						delete(txs, addq[j].hash)
 					}
 				}
@@ -437,7 +440,7 @@ func (pool *TxPool) validatePool() {
 		// perform light nonce validation
 		if state.GetNonce(from) > tx.Nonce() {
 			if glog.V(logger.Core) {
-				glog.Infof("removed tx (%x) from pool: low tx nonce\n", hash[:4])
+				glog.Warningf("removed tx (%x) from pool: low tx nonce\n", hash[:4])
 			}
 			delete(pool.pending, hash)
 		}
