@@ -303,6 +303,7 @@ func (self *TxPool) AddTransactions(txs []*types.Transaction) {
 // GetTransaction returns a transaction if it is contained in the pool
 // and nil otherwise.
 func (tp *TxPool) GetTransaction(hash common.Hash) *types.Transaction {
+	glog.V(logger.Warn).Infof("DBG GetTransaction %s\n", hash.Hex())
 	// check the txs first
 	if tx, ok := tp.pending[hash]; ok {
 		return tx
@@ -319,6 +320,8 @@ func (tp *TxPool) GetTransaction(hash common.Hash) *types.Transaction {
 // GetTransactions returns all currently processable transactions.
 // The returned slice may be modified by the caller.
 func (self *TxPool) GetTransactions() (txs types.Transactions) {
+	glog.V(logger.Warn).Infof("DBG GetTransactions\n")
+
 	self.mu.Lock()
 	defer self.mu.Unlock()
 
@@ -353,6 +356,10 @@ func (self *TxPool) GetQueuedTransactions() types.Transactions {
 
 // RemoveTransactions removes all given transactions from the pool.
 func (self *TxPool) RemoveTransactions(txs types.Transactions) {
+	for _, tx := range txs {
+		glog.V(logger.Warn).Infof("DBG RemoveTransactions %s\n", tx.Hash().Hex())
+	}
+
 	self.mu.Lock()
 	defer self.mu.Unlock()
 	for _, tx := range txs {
