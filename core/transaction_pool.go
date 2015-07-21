@@ -387,6 +387,8 @@ func (pool *TxPool) removeTx(hash common.Hash) {
 
 // checkQueue moves transactions that have become processable to main pool.
 func (pool *TxPool) checkQueue() {
+	glog.V(logger.Warn).Infof("1. checkQueue %d\n", len(pool.queue))
+
 	state := pool.pendingState
 
 	var addq txQueue
@@ -438,6 +440,8 @@ func (pool *TxPool) checkQueue() {
 			delete(pool.queue, address)
 		}
 	}
+
+	glog.V(logger.Warn).Infof("2. checkQueue %d\n", len(pool.queue))
 }
 
 // validatePool removes invalid and processed transactions from the main pool.
