@@ -387,8 +387,6 @@ func (pool *TxPool) removeTx(hash common.Hash) {
 
 // checkQueue moves transactions that have become processable to main pool.
 func (pool *TxPool) checkQueue() {
-	glog.V(logger.Warn).Infof("1. checkQueue %d\n", len(pool.queue))
-
 	state := pool.pendingState
 
 	var addq txQueue
@@ -399,8 +397,9 @@ func (pool *TxPool) checkQueue() {
 		trueNonce := pool.currentState().GetNonce(address)
 		addq := addq[:0]
 		for hash, tx := range txs {
+			glog.V(logger.Debug).Infof("tx.Nonce() = %d, trueNonce = %d\n", tx.Nonce(), trueNonce)
+
 			if tx.Nonce() < trueNonce {
-				glog.V(logger.Warn).Infof("DBG Remove %s from pool %d < %d\n", tx.Hash().Hex(), tx.Nonce(), trueNonce)
 				// Drop queued transactions whose nonce is lower than
 				// the account nonce because they have been processed.
 				delete(txs, hash)
@@ -413,20 +412,21 @@ func (pool *TxPool) checkQueue() {
 		// current account nonce.
 		sort.Sort(addq)
 		for i, e := range addq {
+			glog.V(logger.Debug).Infof("i:%d, e: %s\n", e.hash.Hex())
 			// start deleting the transactions from the queue if they exceed the limit
 			if i > maxQueued {
-				glog.V(logger.Warn).Infof("DBG Remove %s from pool, too many queued %d > %d\n", e.Hash().Hex(), i, maxQueued)
+				glog.V(logger.Debug).Infof("i (%d) > maxQueued (%d)\n", i, maxQueued)
 				delete(pool.queue[address], e.hash)
 				continue
 			}
 
 			if e.Nonce() > guessedNonce {
+				glog.V(logger.Debug).Infof("e.Nonce() %d > guessedNonce (%d)\n", e.Nonce(), guessedNonce)
 				if len(addq)-i > maxQueued {
 					if glog.V(logger.Debug) {
 						glog.Infof("Queued tx limit exceeded for %s. Tx %s removed\n", common.PP(address[:]), common.PP(e.hash[:]))
 					}
 					for j := i + maxQueued; j < len(addq); j++ {
-						glog.V(logger.Warn).Infof("DBG Remove %s from pool, tx limit reached\n", addq[j].hash.Hex())
 						delete(txs, addq[j].hash)
 					}
 				}
@@ -440,8 +440,6 @@ func (pool *TxPool) checkQueue() {
 			delete(pool.queue, address)
 		}
 	}
-
-	glog.V(logger.Warn).Infof("2. checkQueue %d\n", len(pool.queue))
 }
 
 // validatePool removes invalid and processed transactions from the main pool.
