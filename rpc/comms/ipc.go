@@ -46,12 +46,11 @@ func (self *ipcClient) Send(req interface{}) error {
 	var err error
 	if r, ok := req.(*shared.Request); ok {
 		if err = self.coder.WriteResponse(r); err != nil {
-			if _, ok := err.(*net.OpError); ok { // connection lost, retry once
-				if err = self.reconnect(); err == nil {
-					err = self.coder.WriteResponse(r)
-				}
+			if err = self.reconnect(); err == nil {
+				err = self.coder.WriteResponse(r)
 			}
 		}
+
 		return err
 	}
 
