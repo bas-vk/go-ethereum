@@ -285,6 +285,10 @@ var (
 		Usage: "Filename for IPC socket/pipe",
 		Value: DirectoryString{common.DefaultIpcPath()},
 	}
+	EnableGUIFlag = cli.BoolFlag{
+		Name: "enablegui",
+		Usage: "Enable graphical user interaction",
+	}
 	ExecFlag = cli.StringFlag{
 		Name:  "exec",
 		Usage: "Execute javascript statement (only in combination with console/attach)",
@@ -569,7 +573,12 @@ func StartIPC(eth *eth.Ethereum, ctx *cli.Context) error {
 	}
 
 	initializer := func(conn net.Conn) (shared.EthereumApi, error) {
-		fe := useragent.NewRemoteFrontend(conn, eth.AccountManager())
+		var fe xeth.Frontend
+		if true {
+			fe = useragent.NewQMLFrontend(eth.AccountManager())
+		} else {
+			fe = useragent.NewRemoteFrontend(conn, eth.AccountManager())
+		}
 		xeth := xeth.New(eth, fe)
 		codec := codec.JSON
 

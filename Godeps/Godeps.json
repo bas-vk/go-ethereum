@@ -125,6 +125,10 @@
 		{
 			"ImportPath": "gopkg.in/karalabe/cookiejar.v2/collections/prque",
 			"Rev": "8dcd6a7f4951f6ff3ee9cbb919a06d8925822e57"
+		},
+		{
+			"ImportPath": "gopkg.in/qml.v1",
+			"Rev": "2ee7e5ff737026a4dfa89801fac63561279040f4"
 		}
 	]
 }

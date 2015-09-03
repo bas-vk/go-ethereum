@@ -87,6 +87,12 @@ func (am *Manager) Sign(a Account, toSign []byte) (signature []byte, err error) 
 	return signature, err
 }
 
+// IsLocked returns an indication if the account is locked
+func (am *Manager) IsLocked(addr common.Address) bool {
+	_, unlocked := am.unlocked[addr]
+	return !unlocked
+}
+
 // Unlock unlocks the given account indefinitely.
 func (am *Manager) Unlock(addr common.Address, keyAuth string) error {
 	return am.TimedUnlock(addr, keyAuth, 0)

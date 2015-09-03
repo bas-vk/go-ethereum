@@ -44,6 +44,7 @@ import (
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/rpc/codec"
 	"github.com/ethereum/go-ethereum/rpc/comms"
+	"github.com/ethereum/go-ethereum/rpc/useragent"
 )
 
 const (
@@ -68,7 +69,7 @@ func init() {
 	}
 
 	app = utils.NewApp(Version, "the go-ethereum command line interface")
-	app.Action = run
+	app.Action = supportGUI(run)
 	app.HideVersion = true // we have a command to print the version
 	app.Commands = []cli.Command{
 		{
@@ -245,7 +246,7 @@ nodes.
 			},
 		},
 		{
-			Action: console,
+			Action: supportGUI(console),
 			Name:   "console",
 			Usage:  `Geth Console: interactive JavaScript environment`,
 			Description: `
@@ -306,6 +307,7 @@ JavaScript API. See https://github.com/ethereum/go-ethereum/wiki/Javascipt-Conso
 		utils.IPCDisabledFlag,
 		utils.IPCApiFlag,
 		utils.IPCPathFlag,
+		utils.EnableGUIFlag,
 		utils.ExecFlag,
 		utils.WhisperEnabledFlag,
 		utils.DevModeFlag,
@@ -375,6 +377,17 @@ func makeDefaultExtra() []byte {
 	return extra
 }
 
+func supportGUI(action func(*cli.Context)) func(*cli.Context) {
+	return func(ctx *cli.Context) {
+		if ctx.GlobalIsSet(utils.EnableGUIFlag.Name) {
+			go action(ctx)
+			useragent.StartQMLFrontend()
+		} else {
+			action(ctx)
+		}
+	}
+}
+
 func run(ctx *cli.Context) {
 	utils.CheckLegalese(ctx.GlobalString(utils.DataDirFlag.Name))
 	if ctx.GlobalBool(utils.OlympicFlag.Name) {
@@ -438,13 +451,15 @@ func console(ctx *cli.Context) {
 	client := comms.NewInProcClient(codec.JSON)
 
 	startEth(ctx, ethereum)
+	fe := useragent.NewQMLFrontend(ethereum.AccountManager())
+
 	repl := newJSRE(
 		ethereum,
 		ctx.GlobalString(utils.JSpathFlag.Name),
 		ctx.GlobalString(utils.RPCCORSDomainFlag.Name),
 		client,
 		true,
-		nil,
+		fe,
 	)
 
 	if ctx.GlobalString(utils.ExecFlag.Name) != "" {
