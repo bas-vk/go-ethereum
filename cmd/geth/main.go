@@ -380,7 +380,10 @@ func makeDefaultExtra() []byte {
 func supportGUI(action func(*cli.Context)) func(*cli.Context) {
 	return func(ctx *cli.Context) {
 		if ctx.GlobalIsSet(utils.EnableGUIFlag.Name) {
-			go action(ctx)
+			go func() {
+				action(ctx)
+				useragent.StopQMLFrontend()
+			}()
 			useragent.StartQMLFrontend()
 		} else {
 			action(ctx)

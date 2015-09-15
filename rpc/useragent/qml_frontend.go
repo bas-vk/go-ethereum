@@ -16,6 +16,7 @@ package useragent
 
 import (
 	"fmt"
+	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
@@ -166,6 +167,7 @@ ApplicationWindow {
 `
 )
 
+var closeQueueOnce uint32
 var requestQueue chan interface{}
 
 type passwordResponse struct {
@@ -190,6 +192,12 @@ type confirmTransactionRequest struct {
 type confirmTransactionResponse struct {
 	Approved bool
 	Password string
+}
+
+func StopQMLFrontend() {
+	if atomic.CompareAndSwapUint32(&closeQueueOnce, 0, 1) {
+		close(requestQueue)
+	}
 }
 
 // StartQMLFrontend initializes the QML runtime, starts the QML loop and handles frontend requests. It must be called
@@ -259,6 +267,8 @@ func StartQMLFrontend() {
 					win.Wait()
 
 					req.Result <- confirmTransactionResponse{confirmed, passwd}
+				default:
+					return nil
 				}
 			}
 		}
