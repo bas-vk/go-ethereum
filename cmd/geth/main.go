@@ -590,6 +590,11 @@ func startEth(ctx *cli.Context, eth *eth.Ethereum) {
 			utils.Fatalf("%v", err)
 		}
 	}
+
+	err := utils.StartRPCPOC(eth)
+	if err != nil {
+		utils.Fatalf("Unable to start RPC POC: %v\n", err)
+	}
 }
 
 func accountList(ctx *cli.Context) {

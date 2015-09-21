@@ -1,0 +1,16 @@
+Protocol
+
+Request: [Service.Method] [PROTOCOL] [PARAMS]
+
+Protocol: serialization protocol used for params (currently only RLP support)
+Params: serialized array with arguments
+
+E.g: Chain.GetBlockByNumber RLP rlp.Encode(42)
+
+Response: [STATUS] [RESPONSE, optional]
+
+Status, single byte indicating what response looks like
++, call successful, response available
+-, call successful, no response
+!, call resulted in error, error response
+

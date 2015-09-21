@@ -48,6 +48,7 @@ import (
 	"github.com/ethereum/go-ethereum/rpc/shared"
 	"github.com/ethereum/go-ethereum/rpc/useragent"
 	"github.com/ethereum/go-ethereum/xeth"
+	"github.com/ethereum/go-ethereum/rpc/poc"
 )
 
 func init() {
@@ -600,6 +601,34 @@ func StartRPC(eth *eth.Ethereum, ctx *cli.Context) error {
 	}
 
 	return comms.StartHttp(config, codec, api.Merge(apis...))
+}
+
+func StartRPCPOC(eth *eth.Ethereum) error {
+	svr := poc.NewServer()
+	proxy := core.NewChainProxy(eth.ChainManager())
+	if err := svr.RegisterName("chain", proxy); err != nil {
+		return err
+	}
+
+	l, e := net.Listen("unix", "/tmp/poc.sock")
+	if e != nil {
+		return e
+	}
+
+	go func() {
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				continue
+			}
+
+			codec := poc.NewRPCCodec(c)
+			go svr.ServeCodec(codec)
+		}
+	}()
+
+
+	return nil
 }
 
 func StartPProf(ctx *cli.Context) {
