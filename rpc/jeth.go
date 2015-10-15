@@ -54,6 +54,54 @@ func (self *Jeth) err(call otto.FunctionCall, code int, msg string, id interface
 	return res
 }
 
+// UnlockAccount asks the user for the password and than executes the jeth.UnlockAccount callback in the jsre
+func (self *Jeth) UnlockAccount(call otto.FunctionCall) (response otto.Value) {
+	if len(call.ArgumentList) == 1 {
+		if address, err := call.Argument(0).Export(); err == nil {
+			fmt.Printf("Unlock account %s\n", address)
+			passwd, err := utils.PromptPassword("Passphrase: ", true)
+			if err != nil {
+				return otto.FalseValue()
+			}
+
+			cmd := fmt.Sprintf("jeth.unlockAccount('%s', '%s')", address, passwd)
+			if val, err := call.Otto.Run(cmd); err == nil {
+				return val
+			}
+		}
+	}
+
+	return otto.FalseValue()
+}
+
+// NewAccount asks the user for the password and than executes the jeth.newAccount callback in the jsre
+func (self *Jeth) NewAccount(call otto.FunctionCall) (response otto.Value) {
+	if len(call.ArgumentList) == 0 {
+		passwd, err := utils.PromptPassword("Passphrase: ", true)
+		if err != nil {
+			return otto.FalseValue()
+		}
+		passwd2, err := utils.PromptPassword("Repeat passphrase: ", true)
+		if err != nil {
+			return otto.FalseValue()
+		}
+
+		if passwd != passwd2 {
+			fmt.Println("Passphrases don't match")
+			return otto.FalseValue()
+		}
+
+		cmd := fmt.Sprintf("jeth.newAccount('%s')", passwd)
+		if val, err := call.Otto.Run(cmd); err == nil {
+			return val
+		}
+	} else {
+		fmt.Println("New account doesn't expect argument(s), you will be prompted for a password")
+	}
+
+	return otto.FalseValue()
+}
+
 func (self *Jeth) Send(call otto.FunctionCall) (response otto.Value) {
 	reqif, err := call.Argument(0).Export()
 	if err != nil {
