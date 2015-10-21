@@ -23,6 +23,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"encoding/json"
 )
 
 type BlockProcessor interface {
@@ -53,4 +54,8 @@ func (b Bloom) Big() *big.Int {
 
 func (b Bloom) Bytes() []byte {
 	return b[:]
+}
+
+func (b Bloom) MarshalJSON() ([]byte, error) {
+	return json.Marshal(fmt.Sprintf("%x", b.Bytes()))
 }

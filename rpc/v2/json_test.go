@@ -3,8 +3,8 @@ package v2
 import (
 	"bufio"
 	"bytes"
-	"testing"
 	"reflect"
+	"testing"
 )
 
 type RWC struct {

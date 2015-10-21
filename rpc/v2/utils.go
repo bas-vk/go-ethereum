@@ -17,6 +17,9 @@
 package v2
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
 	"reflect"
 	"unicode"
 	"unicode/utf8"
@@ -48,8 +51,32 @@ func isErrorType(t reflect.Type) bool {
 	return t.Implements(errorType)
 }
 
-func suitableCallbacks(typ reflect.Type) callbacks {
+var subscriptionType = reflect.TypeOf((*Subscription)(nil)).Elem()
+
+func isSubscriptionType(t reflect.Type) bool {
+	for t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	return t == subscriptionType
+}
+
+// isPubSub tests whether the given method return the pair
+// (v2.Subscription, error)
+func isPubSub(methodType reflect.Type) bool {
+	if methodType.NumOut() != 2 {
+		return false
+	}
+
+	return isSubscriptionType(methodType.Out(0)) && isErrorType(methodType.Out(1))
+}
+
+// suitableCallbacks iterates over the methods of the given type. It will determine if a method satisfies the criteria
+// for a RPC callback or a subscription callback and adds it to the collection of callbacks or subscriptions. See server
+// documentation for a summary of these criteria.
+func suitableCallbacks(typ reflect.Type) (callbacks, subscriptions) {
 	callbacks := make(callbacks)
+	subscriptions := make(subscriptions)
+
 METHODS:
 	for m := 0; m < typ.NumMethod(); m++ {
 		method := typ.Method(m)
@@ -57,6 +84,26 @@ METHODS:
 		mname := method.Name
 		if method.PkgPath != "" { // method must be exported
 			continue
+		}
+
+		if isPubSub(mtype) {
+			var h callback
+			h.method = method
+			h.errPos = -1
+			h.isSubscribe = true
+
+			h.argTypes = make([]reflect.Type, mtype.NumIn()-1) // skip rcvr type
+			for i := 1; i < mtype.NumIn(); i++ {
+				argType := mtype.In(i)
+				if isExportedOrBuiltinType(argType) {
+					h.argTypes[i-1] = argType
+				} else {
+					continue METHODS
+				}
+			}
+
+			subscriptions[mname] = &h
+			continue METHODS
 		}
 
 		var h callback
@@ -98,7 +145,6 @@ METHODS:
 		case 0, 1:
 			break
 		case 2:
-
 			if h.errPos == -1 { // method must one return value and 1 error
 				continue METHODS
 			}
@@ -110,5 +156,14 @@ METHODS:
 		callbacks[mname] = &h
 	}
 
-	return callbacks
+	return callbacks, subscriptions
+}
+
+func newSubscriptionId() (string, error) {
+	var subid [16]byte
+	n, _ := rand.Read(subid[:])
+	if n != 16 {
+		return "", errors.New("Unable to generate subscription id")
+	}
+	return "0x" + hex.EncodeToString(subid[:]), nil
 }

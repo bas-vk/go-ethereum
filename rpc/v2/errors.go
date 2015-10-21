@@ -29,19 +29,19 @@ func (e *unknownServiceError) Code() int {
 }
 
 func (e *unknownServiceError) Error() string {
-	return fmt.Sprintf("Unknown service %s.%s", e.service, e.method)
+	return fmt.Sprintf("Unknown service %s%s%s", e.service, serviceMethodSeparator, e.method)
 }
 
 // received message isn't a valid request
-type invalidRequest struct {
+type invalidRequestError struct {
 	message string
 }
 
-func (e *invalidRequest) Code() int {
+func (e *invalidRequestError) Code() int {
 	return -32600
 }
 
-func (e *invalidRequest) Error() string {
+func (e *invalidRequestError) Error() string {
 	return e.message
 }
 

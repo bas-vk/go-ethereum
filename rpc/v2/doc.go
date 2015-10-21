@@ -16,13 +16,14 @@
 
 /*
 Package rpc provides access to the exported methods of an object across a network
-or other I/O connection. After creating a service instances object can be registered,
-making it visible. Exported methods that follow specific conventions can be called
-remotely.
+or other I/O connection. After creating a server instance objects can be registered,
+making it visible from the outside. Exported methods that follow specific
+conventions can be called remotely. It also has support for the publish/subscribe
+pattern.
 
 Methods that satisfy the following criteria are made available for remote access:
  - object must be exported
- - method must be d
+ - method must be exported
  - method returns 0, 1 (response or error) or 2 (response and error) values
  - method argument(s) must be exported or builtin types
  - method returned value(s) must be exported or builtin types
@@ -34,22 +35,22 @@ When the returned error isn't nil the returned integer is ignored and the error 
 send back to the client. Otherwise the returned integer is send back to the client.
 
 The server offers the ServeCodec method which accepts a ServerCodec instance. It will
-read requests from the codec, calls registered methods and sends the response back to
-the client using the codec. The server can execute requests concurrently. Responses
+read requests from the codec, process the request and sends the response back to the
+client using the codec. The server can execute requests concurrently. Responses
 can be send back to the client out of order.
 
 An example server which uses the JSON codec:
  type CalculatorService struct {}
 
  func (s *CalculatorService) Add(a, b int) int {
- 	return a + b
+	return a + b
  }
 
  func (s *CalculatorService Div(a, b int) (int, error) {
- 	if b == 0 {
- 		return 0, errors.New("divide by zero")
- 	}
- 	return a/b, nil
+	if b == 0 {
+		return 0, errors.New("divide by zero")
+	}
+	return a/b, nil
  }
 
  calculator := new(CalculatorService)
@@ -60,7 +61,42 @@ An example server which uses the JSON codec:
  for {
 	c, _ := l.AcceptUnix()
 	codec := v2.NewJSONCodec(c)
- 	go server.ServeCodec(codec)
+	go server.ServeCodec(codec)
  }
+
+The package also supports the publish subscribe pattern through the use of subscriptions.
+A method that is considered eligible for notifications must satisfy the following criteria:
+ - object must be exported
+ - method must be exported
+ - method argument(s) must be exported or builtin types
+ - method must return the tuple Subscription, error
+
+
+An example method:
+ func (s *BlockChainService) Head() (Subscription, error) {
+ 	sub := s.bc.eventMux.Subscribe(ChainHeadEvent{})
+	return v2.NewSubscription(sub), nil
+ }
+
+This method will push all raised ChainHeadEvents to subscribed clients. It the client is only
+interested in every N'th block it is possible to add a criteria.
+
+ func (s *BlockChainService) HeadFiltered(nth uint64) (Subscription, error) {
+ 	sub := s.bc.eventMux.Subscribe(ChainHeadEvent{})
+
+	criteria := func(event interface{}) bool {
+		chainHeadEvent := event.(ChainHeadEvent)
+		if chainHeadEvent.Block.NumberU64() % nth == 0 {
+			return true
+		}
+		return false
+	}
+
+	return v2.NewSubscriptionFiltered(sub, criteria), nil
+ }
+
+Subscriptions are deleted when:
+ - the user sends an unsubscribe request
+ - the connection which was used to create the subscription is closed
 */
 package v2
