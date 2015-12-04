@@ -18,6 +18,7 @@ package eth
 
 import (
 	"errors"
+	"fmt"
 	"math/big"
 	"time"
 
@@ -25,8 +26,12 @@ import (
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/compiler"
+	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/state"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/logger"
 	"github.com/ethereum/go-ethereum/logger/glog"
+	"github.com/ethereum/go-ethereum/rlp"
 	rpc "github.com/ethereum/go-ethereum/rpc/v2"
 )
 
@@ -110,6 +115,120 @@ func (s *EthService) Syncing() (interface{}, error) {
 		}, nil
 	}
 	return false, nil
+}
+
+// EthAdminPrivateApi is the collection of Etheruem APIs exposed over the private
+// admin endpoint.
+type EthAdminPrivateApi struct {
+	eth *Ethereum
+}
+
+// SetSolc sets the Solidity compiler path to be used by the node.
+func (api *EthAdminPrivateApi) SetSolc(path string) (string, error) {
+	solc, err := api.eth.SetSolc(path)
+	if err != nil {
+		return "", err
+	}
+	return solc.Info(), nil
+}
+
+// EthDebugPublicApi is the collection of Etheruem APIs exposed over the public
+// debugging endpoint.
+type EthDebugPublicApi struct {
+	eth *Ethereum
+}
+
+// DumpBlock retrieves the entire state of the database at a given block.
+func (api *EthDebugPublicApi) DumpBlock(number uint64) (state.World, error) {
+	block := api.eth.BlockChain().GetBlockByNumber(number)
+	if block == nil {
+		return state.World{}, fmt.Errorf("block #%d not found", number)
+	}
+	stateDb, err := state.New(block.Root(), api.eth.ChainDb())
+	if err != nil {
+		return state.World{}, err
+	}
+	return stateDb.RawDump(), nil
+}
+
+// GetBlockRlp retrieves the RLP encoded for of a single block.
+func (api *EthDebugPublicApi) GetBlockRlp(number uint64) (string, error) {
+	block := api.eth.BlockChain().GetBlockByNumber(number)
+	if block == nil {
+		return "", fmt.Errorf("block #%d not found", number)
+	}
+	encoded, err := rlp.EncodeToBytes(block)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", encoded), nil
+}
+
+// PrintBlock retrieves a block and returns its pretty printed form.
+func (api *EthDebugPublicApi) PrintBlock(number uint64) (string, error) {
+	block := api.eth.BlockChain().GetBlockByNumber(number)
+	if block == nil {
+		return "", fmt.Errorf("block #%d not found", number)
+	}
+	return fmt.Sprintf("%s", block), nil
+}
+
+// SeedHash retrieves the seed hash of a block.
+func (api *EthDebugPublicApi) SeedHash(number uint64) (string, error) {
+	block := api.eth.BlockChain().GetBlockByNumber(number)
+	if block == nil {
+		return "", fmt.Errorf("block #%d not found", number)
+	}
+	hash, err := ethash.GetSeedHash(number)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("0x%x", hash), nil
+}
+
+// EthDebugPrivageApi is the collection of Etheruem APIs exposed over the private
+// debugging endpoint.
+type EthDebugPrivateApi struct {
+	eth *Ethereum
+}
+
+// ProcessBlock reprocesses an already owned block.
+func (api *EthDebugPrivateApi) ProcessBlock(number uint64) (bool, error) {
+	// Fetch the block that we aim to reprocess
+	block := api.eth.BlockChain().GetBlockByNumber(number)
+	if block == nil {
+		return false, fmt.Errorf("block #%d not found", number)
+	}
+	// Temporarily enable debugging
+	defer func(old bool) { vm.Debug = old }(vm.Debug)
+	vm.Debug = true
+
+	// Validate and reprocess the block
+	var (
+		blockchain = api.eth.BlockChain()
+		validator  = blockchain.Validator()
+		processor  = blockchain.Processor()
+	)
+	if err := core.ValidateHeader(blockchain.AuxValidator(), block.Header(), blockchain.GetHeader(block.ParentHash()), true, false); err != nil {
+		return false, err
+	}
+	statedb, err := state.New(blockchain.GetBlock(block.ParentHash()).Root(), api.eth.ChainDb())
+	if err != nil {
+		return false, err
+	}
+	receipts, _, usedGas, err := processor.Process(block, statedb)
+	if err != nil {
+		return false, err
+	}
+	if err := validator.ValidateState(block, blockchain.GetBlock(block.ParentHash()), statedb, receipts, usedGas); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// SetHead rewinds the head of the blockchain to a previous block.
+func (api *EthDebugPrivateApi) SetHead(number uint64) {
+	api.eth.BlockChain().SetHead(number)
 }
 
 // MinerManagementService provides private RPC methods to control the miner

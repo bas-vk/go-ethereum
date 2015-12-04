@@ -295,6 +295,23 @@ func (s *Ethereum) Apis() rpc.Apis {
 			Version:   "1.0",
 			Service:   filters.NewFilterService(s.ChainDb(), s.EventMux()),
 			Public:    true,
+		}, &rpc.Api{
+			Namespace: "admin",
+			Version:   "1.0",
+			Service:   core.NewBlockChainAdminPrivateApi(s.BlockChain()),
+		}, &rpc.Api{
+			Namespace: "admin",
+			Version:   "1.0",
+			Service:   &EthAdminPrivateApi{eth: s},
+		}, &rpc.Api{
+			Namespace: "debug",
+			Version:   "1.0",
+			Service:   &EthDebugPublicApi{eth: s},
+			Public:    true,
+		}, &rpc.Api{
+			Namespace: "debug",
+			Version:   "1.0",
+			Service:   &EthDebugPrivateApi{eth: s},
 		},
 	}
 }

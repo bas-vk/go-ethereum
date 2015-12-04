@@ -266,9 +266,36 @@ func (n *Node) EventMux() *event.TypeMux {
 	return n.eventmux
 }
 
-// RPCApis returns the collection of RPC descriptor this node offers
+// RPCApis returns the collection of RPC descriptor this node offers. This method
+// is just a quick placeholder passthrough for the RPC update, which in the next
+// step will be fully integrated into the node itself.
 func (n *Node) RPCApis() rpc.Apis {
-	var apis rpc.Apis
+	// Define all the APIs owned by the node itself
+	apis := []*rpc.Api{
+		&rpc.Api{
+			Namespace: "admin",
+			Version:   "1.0",
+			Service:   &AdminPrivateApi{node: n},
+		},
+		&rpc.Api{
+			Namespace: "admin",
+			Version:   "1.0",
+			Service:   &AdminPublicApi{node: n},
+			Public:    true,
+		},
+		&rpc.Api{
+			Namespace: "debug",
+			Version:   "1.0",
+			Service:   &DebugPrivateApi{node: n},
+		},
+		&rpc.Api{
+			Namespace: "debug",
+			Version:   "1.0",
+			Service:   &DebugPublicApi{node: n},
+			Public:    true,
+		},
+	}
+	// Inject all the APIs owned by various services
 	for _, api := range n.services {
 		apis = append(apis, api.Apis()...)
 	}

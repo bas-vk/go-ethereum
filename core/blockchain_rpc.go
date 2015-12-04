@@ -18,7 +18,9 @@ package core
 
 import (
 	"fmt"
+	"io"
 	"math/big"
+	"os"
 
 	"time"
 
@@ -28,6 +30,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/logger"
 	"github.com/ethereum/go-ethereum/logger/glog"
+	"github.com/ethereum/go-ethereum/rlp"
 	rpc "github.com/ethereum/go-ethereum/rpc/v2"
 )
 
@@ -349,4 +352,71 @@ func (s *BlockChainService) rpcOutputBlock(b *types.Block, inclTx bool, fullTx b
 	fields["uncles"] = uncleHashes
 
 	return fields, nil
+}
+
+// BlockChainAdminPrivateApi is the collection of API methods exposed by the
+// blockchain package on the administrative interface.
+type BlockChainAdminPrivateApi struct {
+	bc *BlockChain
+}
+
+// NewBlockChainAdminPrivateApi creates a new private administrative API interface
+// to a blockchain instance.
+func NewBlockChainAdminPrivateApi(bc *BlockChain) *BlockChainAdminPrivateApi {
+	return &BlockChainAdminPrivateApi{
+		bc: bc,
+	}
+}
+
+// ExportChain exports the current blockchain into a local file.
+func (api *BlockChainAdminPrivateApi) ExportChain(file string) (bool, error) {
+	// Make sure we can create the file to export into
+	out, err := os.OpenFile(file, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.ModePerm)
+	if err != nil {
+		return false, err
+	}
+	defer out.Close()
+
+	// Export the blockchain
+	if err := api.bc.Export(out); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// ImportChain imports a blockchain from a local file.
+func (api *BlockChainAdminPrivateApi) ImportChain(file string) (bool, error) {
+	// Make sure the can access the file to import
+	in, err := os.Open(file)
+	if err != nil {
+		return false, err
+	}
+	defer in.Close()
+
+	// Run actual the import in pre-configured batches
+	stream := rlp.NewStream(in, 0)
+
+	blocks, index := make([]*types.Block, 0, 2500), 0
+	for batch := 0; ; batch++ {
+		// Load a batch of blocks from the input file
+		for len(blocks) < cap(blocks) {
+			block := new(types.Block)
+			if err := stream.Decode(block); err == io.EOF {
+				break
+			} else if err != nil {
+				return false, fmt.Errorf("block %d: failed to parse: %v", index, err)
+			}
+			blocks = append(blocks, block)
+			index++
+		}
+		if len(blocks) == 0 {
+			break
+		}
+		// Import the batch and reset the buffer
+		if _, err := api.bc.InsertChain(blocks); err != nil {
+			return false, fmt.Errorf("batch %d: failed to insert: %v", batch, err)
+		}
+		blocks = blocks[:0]
+	}
+	return true, nil
 }
