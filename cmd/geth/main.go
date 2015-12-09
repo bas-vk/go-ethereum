@@ -46,14 +46,14 @@ import (
 
 const (
 	ClientIdentifier = "Geth"
-	Version          = "1.4.0-unstable"
-	VersionMajor     = 1
-	VersionMinor     = 4
-	VersionPatch     = 0
+	Version = "1.4.0-unstable"
+	VersionMajor = 1
+	VersionMinor = 4
+	VersionPatch = 0
 )
 
 var (
-	gitCommit       string // set via linker flagg
+	gitCommit string // set via linker flagg
 	nodeNameVersion string
 	app             *cli.App
 )
@@ -313,7 +313,6 @@ JavaScript API. See https://github.com/ethereum/go-ethereum/wiki/Javascipt-Conso
 		utils.IPCDisabledFlag,
 		utils.IPCApiFlag,
 		utils.IPCPathFlag,
-		utils.IPCExperimental,
 		utils.ExecFlag,
 		utils.WhisperEnabledFlag,
 		utils.DevModeFlag,
@@ -368,7 +367,7 @@ func makeDefaultExtra() []byte {
 		Name      string
 		GoVersion string
 		Os        string
-	}{uint(VersionMajor<<16 | VersionMinor<<8 | VersionPatch), ClientIdentifier, runtime.Version(), runtime.GOOS}
+	}{uint(VersionMajor << 16 | VersionMinor << 8 | VersionPatch), ClientIdentifier, runtime.Version(), runtime.GOOS}
 	extra, err := rlp.EncodeToBytes(clientInfo)
 	if err != nil {
 		glog.V(logger.Warn).Infoln("error setting canonical miner information:", err)
@@ -473,7 +472,7 @@ func unlockAccount(ctx *cli.Context, accman *accounts.Manager, address string, i
 	}
 
 	for trials := 0; trials < 3; trials++ {
-		prompt := fmt.Sprintf("Unlocking account %s | Attempt %d/%d", address, trials+1, 3)
+		prompt := fmt.Sprintf("Unlocking account %s | Attempt %d/%d", address, trials + 1, 3)
 		password := getPassPhrase(prompt, false, i, passwords)
 		if err := accman.Unlock(account, password); err == nil {
 			return account, password
@@ -542,7 +541,7 @@ func getPassPhrase(prompt string, confirmation bool, i int, passwords []string) 
 		if i < len(passwords) {
 			return passwords[i]
 		}
-		return passwords[len(passwords)-1]
+		return passwords[len(passwords) - 1]
 	}
 	// Otherwise prompt the user for the password
 	fmt.Println(prompt)

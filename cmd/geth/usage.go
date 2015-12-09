@@ -158,7 +158,6 @@ var AppHelpFlagGroups = []flagGroup{
 		Flags: []cli.Flag{
 			utils.WhisperEnabledFlag,
 			utils.NatspecEnabledFlag,
-			utils.IPCExperimental,
 		},
 	},
 	{
@@ -197,12 +196,12 @@ func init() {
 			}
 			if len(uncategorized) > 0 {
 				// Append all ungategorized options to the misc group
-				miscs := len(AppHelpFlagGroups[len(AppHelpFlagGroups)-1].Flags)
-				AppHelpFlagGroups[len(AppHelpFlagGroups)-1].Flags = append(AppHelpFlagGroups[len(AppHelpFlagGroups)-1].Flags, uncategorized...)
+				miscs := len(AppHelpFlagGroups[len(AppHelpFlagGroups) - 1].Flags)
+				AppHelpFlagGroups[len(AppHelpFlagGroups) - 1].Flags = append(AppHelpFlagGroups[len(AppHelpFlagGroups) - 1].Flags, uncategorized...)
 
 				// Make sure they are removed afterwards
 				defer func() {
-					AppHelpFlagGroups[len(AppHelpFlagGroups)-1].Flags = AppHelpFlagGroups[len(AppHelpFlagGroups)-1].Flags[:miscs]
+					AppHelpFlagGroups[len(AppHelpFlagGroups) - 1].Flags = AppHelpFlagGroups[len(AppHelpFlagGroups) - 1].Flags[:miscs]
 				}()
 			}
 			// Render out custom usage screen

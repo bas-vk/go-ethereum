@@ -23,7 +23,6 @@ import (
 	"log"
 	"math"
 	"math/big"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -49,14 +48,9 @@ import (
 	"github.com/ethereum/go-ethereum/p2p/discover"
 	"github.com/ethereum/go-ethereum/p2p/nat"
 	"github.com/ethereum/go-ethereum/params"
-	"github.com/ethereum/go-ethereum/rpc/api"
-	"github.com/ethereum/go-ethereum/rpc/codec"
 	"github.com/ethereum/go-ethereum/rpc/comms"
-	"github.com/ethereum/go-ethereum/rpc/shared"
-	"github.com/ethereum/go-ethereum/rpc/useragent"
 	rpc "github.com/ethereum/go-ethereum/rpc/v2"
 	"github.com/ethereum/go-ethereum/whisper"
-	"github.com/ethereum/go-ethereum/xeth"
 )
 
 func init() {
@@ -300,10 +294,6 @@ var (
 		Name:  "ipcpath",
 		Usage: "Filename for IPC socket/pipe",
 		Value: DirectoryString{common.DefaultIpcPath()},
-	}
-	IPCExperimental = cli.BoolFlag{
-		Name:  "ipcexp",
-		Usage: "Enable the new RPC implementation",
 	}
 	ExecFlag = cli.StringFlag{
 		Name:  "exec",
@@ -789,70 +779,89 @@ func StartIPC(stack *node.Node, ctx *cli.Context) error {
 		return err
 	}
 
-	if ctx.GlobalIsSet(IPCExperimental.Name) {
-		listener, err := comms.CreateListener(config)
-		if err != nil {
-			return err
-		}
+	listener, err := comms.CreateListener(config)
+	if err != nil {
+		return err
+	}
 
-		server := rpc.NewServer()
+	server := rpc.NewServer()
 
-		// register package API's this node provides
-		offered := stack.RPCApis()
-		for _, api := range offered {
-			server.RegisterName(api.Namespace, api.Service)
-			glog.V(logger.Debug).Infof("Register %T under namespace '%s' for IPC service\n", api.Service, api.Namespace)
-		}
+	// register package API's this node provides
+	offered := stack.RPCApis()
+	for _, api := range offered {
+		server.RegisterName(api.Namespace, api.Service)
+		glog.V(logger.Debug).Infof("Register %T under namespace '%s' for IPC service\n", api.Service, api.Namespace)
+	}
 
-		web3 := NewPublicWeb3Api(stack)
-		server.RegisterName("web3", web3)
-		net := NewPublicNetApi(stack.Server(), ethereum.NetVersion())
-		server.RegisterName("net", net)
+	web3 := NewPublicWeb3Api(stack)
+	server.RegisterName("web3", web3)
+	net := NewPublicNetApi(stack.Server(), ethereum.NetVersion())
+	server.RegisterName("net", net)
 
-		go func() {
-			glog.V(logger.Info).Infof("Start IPC server on %s\n", config.Endpoint)
-			for {
-				conn, err := listener.Accept()
-				if err != nil {
-					glog.V(logger.Error).Infof("Unable to accept connection - %v\n", err)
-				}
-
-				codec := rpc.NewJSONCodec(conn)
-				go server.ServeCodec(codec)
+	go func() {
+		glog.V(logger.Info).Infof("Start IPC server on %s\n", config.Endpoint)
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				glog.V(logger.Error).Infof("Unable to accept connection - %v\n", err)
 			}
-		}()
 
-		return nil
-	}
-
-	initializer := func(conn net.Conn) (comms.Stopper, shared.EthereumApi, error) {
-		fe := useragent.NewRemoteFrontend(conn, ethereum.AccountManager())
-		xeth := xeth.New(stack, fe)
-		apis, err := api.ParseApiString(ctx.GlobalString(IPCApiFlag.Name), codec.JSON, xeth, stack)
-		if err != nil {
-			return nil, nil, err
+			codec := rpc.NewJSONCodec(conn)
+			go server.ServeCodec(codec)
 		}
-		return xeth, api.Merge(apis...), nil
-	}
-	return comms.StartIpc(config, codec.JSON, initializer)
+	}()
+
+	return nil
 }
 
 // StartRPC starts a HTTP JSON-RPC API server.
 func StartRPC(stack *node.Node, ctx *cli.Context) error {
-	config := comms.HttpConfig{
-		ListenAddress: ctx.GlobalString(RPCListenAddrFlag.Name),
-		ListenPort:    uint(ctx.GlobalInt(RPCPortFlag.Name)),
-		CorsDomain:    ctx.GlobalString(RPCCORSDomainFlag.Name),
-	}
-
-	xeth := xeth.New(stack, nil)
-	codec := codec.JSON
-
-	apis, err := api.ParseApiString(ctx.GlobalString(RpcApiFlag.Name), codec, xeth, stack)
-	if err != nil {
+	var ethereum *eth.Ethereum
+	if err := stack.Service(&ethereum); err != nil {
 		return err
 	}
-	return comms.StartHttp(config, codec, api.Merge(apis...))
+
+	server := rpc.NewServer()
+
+	// register public API's
+	offered := stack.RPCApis()
+	for _, api := range offered {
+		if api.Public {
+			server.RegisterName(api.Namespace, api.Service)
+			glog.V(logger.Debug).Infof("Register %T under namespace '%s' for IPC service\n", api.Service, api.Namespace)
+		}
+	}
+
+	// the web3 and net package are part of the public API but not part of any specific package
+	web3 := NewPublicWeb3Api(stack)
+	server.RegisterName("web3", web3)
+	net := NewPublicNetApi(stack.Server(), ethereum.NetVersion())
+	server.RegisterName("net", net)
+
+	http.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			http.Error(w, "webserver doesn't support hijacking", http.StatusInternalServerError)
+			return
+		}
+
+		conn, rwbuf, err := hj.Hijack()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		corsdomains := strings.Split(ctx.GlobalString(RPCCORSDomainFlag.Name), " ")
+		httpRequestStream := rpc.NewHttpMessageStream(conn, rwbuf, req, corsdomains)
+
+		codec := rpc.NewJSONCodec(httpRequestStream)
+		go server.ServeCodec(codec)
+	})
+
+	endpoint := fmt.Sprintf("%s:%d", ctx.GlobalString(RPCListenAddrFlag.Name), ctx.GlobalInt(RPCPortFlag.Name))
+	go http.ListenAndServe(endpoint, nil)
+
+	return nil
 }
 
 func StartPProf(ctx *cli.Context) {

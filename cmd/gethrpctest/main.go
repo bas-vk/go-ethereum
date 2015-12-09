@@ -26,22 +26,22 @@ import (
 	"path/filepath"
 	"runtime"
 
+	"fmt"
+	"net/http"
+
 	"github.com/ethereum/go-ethereum/accounts"
+	"github.com/ethereum/go-ethereum/cmd/utils"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/eth"
 	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/logger"
+	"github.com/ethereum/go-ethereum/logger/glog"
 	"github.com/ethereum/go-ethereum/node"
-	"github.com/ethereum/go-ethereum/rpc/api"
-	"github.com/ethereum/go-ethereum/rpc/codec"
 	"github.com/ethereum/go-ethereum/rpc/comms"
+	rpc "github.com/ethereum/go-ethereum/rpc/v2"
 	"github.com/ethereum/go-ethereum/tests"
 	"github.com/ethereum/go-ethereum/whisper"
-	"github.com/ethereum/go-ethereum/xeth"
-	rpc "github.com/ethereum/go-ethereum/rpc/v2"
-	"github.com/ethereum/go-ethereum/logger/glog"
-	"github.com/ethereum/go-ethereum/logger"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/cmd/utils"
 )
 
 const defaultTestKey = "b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291"
@@ -174,20 +174,53 @@ func RunTest(stack *node.Node, test *tests.BlockTest) error {
 	return nil
 }
 
-// StartRPC initializes an RPC interface to the given protocol stack.
+// StartRPC initializes an HTTP-RPC interface to the given protocol stack.
 func StartRPC(stack *node.Node) error {
-	config := comms.HttpConfig{
-		ListenAddress: "127.0.0.1",
-		ListenPort:    8545,
-	}
-	xeth := xeth.New(stack, nil)
-	codec := codec.JSON
-
-	apis, err := api.ParseApiString(comms.DefaultHttpRpcApis, codec, xeth, stack)
-	if err != nil {
+	var ethereum *eth.Ethereum
+	if err := stack.Service(&ethereum); err != nil {
 		return err
 	}
-	return comms.StartHttp(config, codec, api.Merge(apis...))
+
+	server := rpc.NewServer()
+
+	// register public API's
+	offered := stack.RPCApis()
+	for _, api := range offered {
+		if api.Public {
+			server.RegisterName(api.Namespace, api.Service)
+			glog.V(logger.Debug).Infof("Register %T under namespace '%s' for IPC service\n", api.Service, api.Namespace)
+		}
+	}
+
+	// the web3 and net package are part of the public API but not part of any specific package
+	web3 := utils.NewPublicWeb3Api(stack)
+	server.RegisterName("web3", web3)
+	net := utils.NewPublicNetApi(stack.Server(), ethereum.NetVersion())
+	server.RegisterName("net", net)
+
+	http.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			http.Error(w, "webserver doesn't support hijacking", http.StatusInternalServerError)
+			return
+		}
+
+		conn, rwbuf, err := hj.Hijack()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		httpRequestStream := rpc.NewHttpMessageStream(conn, rwbuf, req, nil)
+
+		codec := rpc.NewJSONCodec(httpRequestStream)
+		go server.ServeCodec(codec)
+	})
+
+	endpoint := fmt.Sprintf("localhost:8545")
+	go http.ListenAndServe(endpoint, nil)
+
+	return nil
 }
 
 // StartRPC initializes an IPC interface to the given protocol stack.
