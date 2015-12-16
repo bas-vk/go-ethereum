@@ -31,9 +31,9 @@ import (
 )
 
 var (
-	ErrDatadirUsed    = errors.New("datadir already used")
-	ErrNodeStopped    = errors.New("node not started")
-	ErrNodeRunning    = errors.New("node already running")
+	ErrDatadirUsed = errors.New("datadir already used")
+	ErrNodeStopped = errors.New("node not started")
+	ErrNodeRunning = errors.New("node already running")
 	ErrServiceUnknown = errors.New("unknown service")
 
 	datadirInUseErrnos = map[uint]bool{11: true, 32: true, 35: true}
@@ -42,17 +42,17 @@ var (
 // Node represents a P2P node into which arbitrary (uniquely typed) services might
 // be registered.
 type Node struct {
-	datadir  string         // Path to the currently used data directory
-	eventmux *event.TypeMux // Event multiplexer used between the services of a stack
+	datadir      string                   // Path to the currently used data directory
+	eventmux     *event.TypeMux           // Event multiplexer used between the services of a stack
 
-	serverConfig *p2p.Server // Configuration of the underlying P2P networking layer
-	server       *p2p.Server // Currently running P2P networking layer
+	serverConfig *p2p.Server              // Configuration of the underlying P2P networking layer
+	server       *p2p.Server              // Currently running P2P networking layer
 
 	serviceFuncs []ServiceConstructor     // Service constructors (in dependency order)
 	services     map[reflect.Type]Service // Currently running services
 
-	stop chan struct{} // Channel to wait for termination notifications
-	lock sync.RWMutex
+	stop         chan struct{}            // Channel to wait for termination notifications
+	lock         sync.RWMutex
 }
 
 // New creates a new P2P node, ready for protocol registration.
@@ -289,6 +289,11 @@ func (n *Node) APIs() []rpc.API {
 			Namespace: "debug",
 			Version:   "1.0",
 			Service:   NewPublicDebugAPI(n),
+			Public:    true,
+		}, {
+			Namespace: "web3",
+			Version:   "1.0",
+			Service:   NewPublicWeb3API(n),
 			Public:    true,
 		},
 	}

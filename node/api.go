@@ -24,8 +24,11 @@ import (
 	"github.com/ethereum/go-ethereum/logger/glog"
 	"github.com/ethereum/go-ethereum/p2p"
 	"github.com/ethereum/go-ethereum/p2p/discover"
-	"github.com/ethereum/go-ethereum/rpc/comms"
 	"github.com/rcrowley/go-metrics"
+	rpc "github.com/ethereum/go-ethereum/rpc/v2"
+	"gopkg.in/fatih/set.v0"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 )
 
 // PrivateAdminAPI is the collection of administrative API methods exposed only
@@ -59,27 +62,41 @@ func (api *PrivateAdminAPI) AddPeer(url string) (bool, error) {
 
 // StartRPC starts the HTTP RPC API server.
 func (api *PrivateAdminAPI) StartRPC(address string, port int, cors string, apis string) (bool, error) {
-	/*// Parse the list of API modules to make available
-	apis, err := api.ParseApiString(apis, codec.JSON, xeth.New(api.node, nil), api.node)
-	if err != nil {
-		return false, err
+	var offeredAPIs []rpc.API
+	if len(apis) > 0 {
+		namespaces := set.New()
+		for _, a := range strings.Split(apis, ",") {
+			namespaces.Add(strings.TrimSpace(a))
+		}
+		for _, api := range api.node.APIs() {
+			if namespaces.Has(api.Namespace) {
+				offeredAPIs = append(offeredAPIs, api)
+			}
+		}
+	} else { // use by default all public API's
+		for _, api := range api.node.APIs() {
+			if api.Public {
+				offeredAPIs = append(offeredAPIs, api)
+			}
+		}
 	}
-	// Configure and start the HTTP RPC server
-	config := comms.HttpConfig{
-		ListenAddress: address,
-		ListenPort:    port,
-		CorsDomain:    cors,
+
+	if address == "" {
+		address = "127.0.0.1"
 	}
-	if err := comms.StartHttp(config, self.codec, api.Merge(apis...)); err != nil {
-		return false, err
+	if port == 0 {
+		port = 8545
 	}
-	return true, nil*/
-	return false, fmt.Errorf("needs new RPC implementation to resolve circular dependency")
+
+	corsDomains := strings.Split(cors, " ")
+	err := rpc.StartHTTP(address, port, corsDomains, offeredAPIs)
+	return err == nil, err
 }
 
 // StopRPC terminates an already running HTTP RPC API endpoint.
-func (api *PrivateAdminAPI) StopRPC() {
-	comms.StopHttp()
+func (api *PrivateAdminAPI) StopRPC() (bool, error) {
+	err := rpc.StopHTTP()
+	return err == nil, err
 }
 
 // PublicAdminAPI is the collection of administrative API methods exposed over
@@ -157,7 +174,7 @@ func (api *PublicDebugAPI) Metrics(raw bool) (map[string]interface{}, error) {
 	round := func(value float64, prec int) string {
 		unit := 0
 		for value >= 1000 {
-			unit, value, prec = unit+1, value/1000, 2
+			unit, value, prec = unit + 1, value / 1000, 2
 		}
 		return fmt.Sprintf(fmt.Sprintf("%%.%df%s", prec, units[unit]), value)
 	}
@@ -169,13 +186,13 @@ func (api *PublicDebugAPI) Metrics(raw bool) (map[string]interface{}, error) {
 	metrics.DefaultRegistry.Each(func(name string, metric interface{}) {
 		// Create or retrieve the counter hierarchy for this metric
 		root, parts := counters, strings.Split(name, "/")
-		for _, part := range parts[:len(parts)-1] {
+		for _, part := range parts[:len(parts) - 1] {
 			if _, ok := root[part]; !ok {
 				root[part] = make(map[string]interface{})
 			}
 			root = root[part].(map[string]interface{})
 		}
-		name = parts[len(parts)-1]
+		name = parts[len(parts) - 1]
 
 		// Fill the counter with the metric details, formatting if requested
 		if raw {
@@ -212,17 +229,17 @@ func (api *PublicDebugAPI) Metrics(raw bool) (map[string]interface{}, error) {
 			switch metric := metric.(type) {
 			case metrics.Meter:
 				root[name] = map[string]interface{}{
-					"Avg01Min": format(metric.Rate1()*60, metric.Rate1()),
-					"Avg05Min": format(metric.Rate5()*300, metric.Rate5()),
-					"Avg15Min": format(metric.Rate15()*900, metric.Rate15()),
+					"Avg01Min": format(metric.Rate1() * 60, metric.Rate1()),
+					"Avg05Min": format(metric.Rate5() * 300, metric.Rate5()),
+					"Avg15Min": format(metric.Rate15() * 900, metric.Rate15()),
 					"Overall":  format(float64(metric.Count()), metric.RateMean()),
 				}
 
 			case metrics.Timer:
 				root[name] = map[string]interface{}{
-					"Avg01Min": format(metric.Rate1()*60, metric.Rate1()),
-					"Avg05Min": format(metric.Rate5()*300, metric.Rate5()),
-					"Avg15Min": format(metric.Rate15()*900, metric.Rate15()),
+					"Avg01Min": format(metric.Rate1() * 60, metric.Rate1()),
+					"Avg05Min": format(metric.Rate5() * 300, metric.Rate5()),
+					"Avg15Min": format(metric.Rate15() * 900, metric.Rate15()),
 					"Overall":  format(float64(metric.Count()), metric.RateMean()),
 					"Maximum":  time.Duration(metric.Max()).String(),
 					"Minimum":  time.Duration(metric.Min()).String(),
@@ -241,4 +258,25 @@ func (api *PublicDebugAPI) Metrics(raw bool) (map[string]interface{}, error) {
 		}
 	})
 	return counters, nil
+}
+
+// PublicWeb3API offers helper utils
+type PublicWeb3API struct {
+	stack *Node
+}
+
+// NewPublicWeb3API creates a new Web3Service instance
+func NewPublicWeb3API(stack *Node) *PublicWeb3API {
+	return &PublicWeb3API{stack}
+}
+
+// ClientVersion returns the node name
+func (s *PublicWeb3API) ClientVersion() string {
+	return s.stack.Server().Name
+}
+
+// Sha3 applies the ethereum sha3 implementation on the input.
+// It assumes the input is hex encoded.
+func (s *PublicWeb3API) Sha3(input string) string {
+	return common.ToHex(crypto.Sha3(common.FromHex(input)))
 }

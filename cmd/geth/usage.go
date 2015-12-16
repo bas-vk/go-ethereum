@@ -159,6 +159,7 @@ var AppHelpFlagGroups = []flagGroup{
 			utils.WhisperEnabledFlag,
 			utils.NatspecEnabledFlag,
 			utils.IPCExperimental,
+			utils.RPCExperimentalFlag,
 		},
 	},
 	{

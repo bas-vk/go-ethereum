@@ -83,3 +83,15 @@ func (e *callbackError) Code() int {
 func (e *callbackError) Error() string {
 	return e.message
 }
+
+// issued when a request is received after the server is issued to stop.
+type shutdownError struct {
+}
+
+func (e *shutdownError) Code() int {
+	return -32000
+}
+
+func (e *shutdownError) Error() string {
+	return "server is shutting down"
+}

@@ -25,6 +25,7 @@ import (
 	"sync"
 
 	"github.com/ethereum/go-ethereum/event"
+	"gopkg.in/fatih/set.v0"
 )
 
 // API describes the set of methods offered over the RPC interface
@@ -75,6 +76,10 @@ type Server struct {
 	services       serviceRegistry
 	muSubcriptions sync.Mutex // protects subscriptions
 	subscriptions  subscriptionRegistry
+
+	run            int32
+	codecsMu       sync.Mutex
+	codecs         *set.Set
 }
 
 // rpcRequest represents a raw incoming RPC request

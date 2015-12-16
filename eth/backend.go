@@ -94,20 +94,20 @@ type Config struct {
 
 type Ethereum struct {
 	// Channel for shutting down the ethereum
-	shutdownChan chan bool
+	shutdownChan            chan bool
 
 	// DB interfaces
-	chainDb ethdb.Database // Block chain database
-	dappDb  ethdb.Database // Dapp database
+	chainDb                 ethdb.Database // Block chain database
+	dappDb                  ethdb.Database // Dapp database
 
 	// Handlers
-	txPool          *core.TxPool
-	blockchain      *core.BlockChain
-	accountManager  *accounts.Manager
-	pow             *ethash.Ethash
-	protocolManager *ProtocolManager
-	SolcPath        string
-	solc            *compiler.Solidity
+	txPool                  *core.TxPool
+	blockchain              *core.BlockChain
+	accountManager          *accounts.Manager
+	pow                     *ethash.Ethash
+	protocolManager         *ProtocolManager
+	SolcPath                string
+	solc                    *compiler.Solidity
 
 	GpoMinGasPrice          *big.Int
 	GpoMaxGasPrice          *big.Int
@@ -116,19 +116,20 @@ type Ethereum struct {
 	GpobaseStepUp           int
 	GpobaseCorrectionFactor int
 
-	httpclient *httpclient.HTTPClient
+	httpclient              *httpclient.HTTPClient
 
-	eventMux *event.TypeMux
-	miner    *miner.Miner
+	eventMux                *event.TypeMux
+	miner                   *miner.Miner
 
-	Mining       bool
-	MinerThreads int
-	NatSpec      bool
-	AutoDAG      bool
-	PowTest      bool
-	autodagquit  chan bool
-	etherbase    common.Address
-	netVersionId int
+	Mining                  bool
+	MinerThreads            int
+	NatSpec                 bool
+	AutoDAG                 bool
+	PowTest                 bool
+	autodagquit             chan bool
+	etherbase               common.Address
+	netVersionId            int
+	netRPCService           *PublicNetAPI
 }
 
 func New(ctx *node.ServiceContext, config *Config) (*Ethereum, error) {
@@ -262,12 +263,12 @@ func (s *Ethereum) APIs() []rpc.API {
 		}, {
 			Namespace: "eth",
 			Version:   "1.0",
-			Service:   NewPublicBlockChainAPI(s.BlockChain(), s.ChainDb(), s.EventMux(), s.AccountManager()),
+			Service:   NewPublicBlockChainAPI(s.BlockChain(), s.Miner(), s.ChainDb(), s.EventMux(), s.AccountManager()),
 			Public:    true,
 		}, {
 			Namespace: "eth",
 			Version:   "1.0",
-			Service:   NewPublicTransactionPoolAPI(s.TxPool(), s.ChainDb(), s.EventMux(), s.BlockChain(), s.AccountManager()),
+			Service:   NewPublicTransactionPoolAPI(s.TxPool(), s.Miner(), s.ChainDb(), s.EventMux(), s.BlockChain(), s.AccountManager()),
 			Public:    true,
 		}, {
 			Namespace: "eth",
@@ -307,6 +308,11 @@ func (s *Ethereum) APIs() []rpc.API {
 			Namespace: "debug",
 			Version:   "1.0",
 			Service:   NewPrivateDebugAPI(s),
+		}, {
+			Namespace: "net",
+			Version:   "1.0",
+			Service:   s.netRPCService,
+			Public:    true,
 		},
 	}
 }
@@ -356,11 +362,12 @@ func (s *Ethereum) Protocols() []p2p.Protocol {
 
 // Start implements node.Service, starting all internal goroutines needed by the
 // Ethereum protocol implementation.
-func (s *Ethereum) Start(*p2p.Server) error {
+func (s *Ethereum) Start(srvr *p2p.Server) error {
 	if s.AutoDAG {
 		s.StartAutoDAG()
 	}
 	s.protocolManager.Start()
+	s.netRPCService = NewPublicNetAPI(srvr, s.NetVersion())
 	return nil
 }
 

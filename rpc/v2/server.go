@@ -19,18 +19,29 @@ package v2
 import (
 	"fmt"
 	"reflect"
-
 	"runtime"
+	"sync/atomic"
+	"time"
 
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/ethereum/go-ethereum/logger"
-	"github.com/ethereum/go-ethereum/logger/glog"
+	"github.com/golang/glog"
 	"golang.org/x/net/context"
+	"gopkg.in/fatih/set.v0"
+)
+
+const (
+	stopPendingRequestTimeout = 3 * time.Second // give pending requests stopPendingRequestTimeout the time to finish when the server is stopped
 )
 
 // NewServer will create a new server instance with no registered handlers.
 func NewServer() *Server {
-	server := &Server{services: make(serviceRegistry), subscriptions: make(subscriptionRegistry)}
+	server := &Server{
+		services:      make(serviceRegistry),
+		subscriptions: make(subscriptionRegistry),
+		codecs:        set.New(),
+		run:           1,
+	}
 
 	// register a default service which will provide meta information about the RPC service such as the services and
 	// methods it offers.
@@ -124,11 +135,34 @@ func (s *Server) ServeCodec(codec ServerCodec) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	for {
+	s.codecsMu.Lock()
+	if atomic.LoadInt32(&s.run) != 1 { // server stopped
+		s.codecsMu.Unlock()
+		return
+	}
+	s.codecs.Add(codec)
+	s.codecsMu.Unlock()
+
+	for atomic.LoadInt32(&s.run) == 1 {
 		reqs, batch, err := s.readRequest(codec)
+
 		if err != nil {
 			glog.V(logger.Debug).Infof("%v\n", err)
 			codec.Write(codec.CreateErrorResponse(nil, err))
+			break
+		}
+
+		if atomic.LoadInt32(&s.run) != 1 {
+			err = &shutdownError{}
+			if batch {
+				resps := make([]interface{}, len(reqs))
+				for i, r := range reqs {
+					resps[i] = codec.CreateErrorResponse(&r.id, err)
+				}
+				codec.Write(resps)
+			} else {
+				codec.Write(codec.CreateErrorResponse(&reqs[0].id, err))
+			}
 			break
 		}
 
@@ -137,6 +171,22 @@ func (s *Server) ServeCodec(codec ServerCodec) {
 		} else {
 			go s.exec(ctx, codec, reqs[0])
 		}
+	}
+}
+
+// Stop will stop reading new requests, wait for stopPendingRequestTimeout to allow pending requests to finish,
+// close all codecs which will cancels pending requests/subscriptions.
+func (s *Server) Stop() {
+	if atomic.CompareAndSwapInt32(&s.run, 1, 0) {
+		glog.V(logger.Debug).Infoln("RPC Server shutdown initiatied")
+		time.AfterFunc(stopPendingRequestTimeout, func() {
+			s.codecsMu.Lock()
+			defer s.codecsMu.Unlock()
+			s.codecs.Each(func(c interface{}) bool {
+				c.(ServerCodec).Close()
+				return true
+			})
+		})
 	}
 }
 

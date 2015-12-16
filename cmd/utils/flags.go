@@ -57,6 +57,7 @@ import (
 	rpc "github.com/ethereum/go-ethereum/rpc/v2"
 	"github.com/ethereum/go-ethereum/whisper"
 	"github.com/ethereum/go-ethereum/xeth"
+	"errors"
 )
 
 func init() {
@@ -287,6 +288,10 @@ var (
 		Usage: "API's offered over the HTTP-RPC interface",
 		Value: comms.DefaultHttpRpcApis,
 	}
+	RPCExperimentalFlag = cli.BoolFlag{
+		Name: "rpcexp",
+		Usage: "Enable the new RPC implementation for the HTTP interface",
+	}
 	IPCDisabledFlag = cli.BoolFlag{
 		Name:  "ipcdisable",
 		Usage: "Disable the IPC-RPC server",
@@ -303,7 +308,7 @@ var (
 	}
 	IPCExperimental = cli.BoolFlag{
 		Name:  "ipcexp",
-		Usage: "Enable the new RPC implementation",
+		Usage: "Enable the new RPC implementation for the IPC interface",
 	}
 	ExecFlag = cli.StringFlag{
 		Name:  "exec",
@@ -804,11 +809,6 @@ func StartIPC(stack *node.Node, ctx *cli.Context) error {
 			glog.V(logger.Debug).Infof("Register %T under namespace '%s' for IPC service\n", api.Service, api.Namespace)
 		}
 
-		web3 := NewPublicWeb3API(stack)
-		server.RegisterName("web3", web3)
-		net := NewPublicNetAPI(stack.Server(), ethereum.NetVersion())
-		server.RegisterName("net", net)
-
 		go func() {
 			glog.V(logger.Info).Infof("Start IPC server on %s\n", config.Endpoint)
 			for {
@@ -839,6 +839,27 @@ func StartIPC(stack *node.Node, ctx *cli.Context) error {
 
 // StartRPC starts a HTTP JSON-RPC API server.
 func StartRPC(stack *node.Node, ctx *cli.Context) error {
+	if ctx.GlobalIsSet(RPCExperimentalFlag.Name) {
+		for _, api := range stack.APIs() {
+			if adminApi, ok := api.Service.(*node.PrivateAdminAPI); ok {
+				address := ctx.GlobalString(RPCListenAddrFlag.Name)
+				port := ctx.GlobalInt(RPCPortFlag.Name)
+				cors := ctx.GlobalString(RPCCORSDomainFlag.Name)
+				apiStr := ""
+				if ctx.GlobalIsSet(RpcApiFlag.Name) {
+					apiStr = ctx.GlobalString(RpcApiFlag.Name)
+				}
+
+				_, err := adminApi.StartRPC(address, port, cors, apiStr)
+				return err
+			}
+		}
+
+		glog.V(logger.Error).Infof("Unable to start RPC-HTTP interface, could not find admin API")
+		return errors.New("Unable to start RPC-HTTP interface")
+	}
+
+	// start old RPC implementation
 	config := comms.HttpConfig{
 		ListenAddress: ctx.GlobalString(RPCListenAddrFlag.Name),
 		ListenPort:    uint(ctx.GlobalInt(RPCPortFlag.Name)),

@@ -310,6 +310,7 @@ JavaScript API. See https://github.com/ethereum/go-ethereum/wiki/Javascipt-Conso
 		utils.RPCListenAddrFlag,
 		utils.RPCPortFlag,
 		utils.RpcApiFlag,
+		utils.RPCExperimentalFlag,
 		utils.IPCDisabledFlag,
 		utils.IPCApiFlag,
 		utils.IPCPathFlag,
