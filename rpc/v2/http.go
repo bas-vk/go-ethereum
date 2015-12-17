@@ -86,31 +86,31 @@ func (h *httpMessageStream) handleOptionsRequest(req *http.Request) error {
 		return fmt.Errorf("preflight aborted: empty origin")
 	}
 
-	if !h.allowedOrigins.Has(origin) {
-		return fmt.Errorf("preflight aborted: origin '%s' not allowed", origin)
-	}
-
 	responseHeaders := make(http.Header)
 	responseHeaders.Set("Access-Control-Allow-Methods", "POST")
-	responseHeaders.Set("Access-Control-Allow-Origin", origin)
+	if h.allowedOrigins.Has(origin) {
+		responseHeaders.Set("Access-Control-Allow-Origin", origin)
+	} else {
+		glog.V(logger.Info).Infof("origin '%s' not allowed", origin)
+	}
 	responseHeaders.Set("Access-Control-Allow-Headers", "Content-Type")
 	responseHeaders.Set("Date", string(httpTimestamp(time.Now())))
 	responseHeaders.Set("Content-Type", "text/plain; charset=utf-8")
 	responseHeaders.Set("Content-Length", "0")
 	responseHeaders.Set("Vary", "Origin")
 
+	defer h.rw.Flush()
+
 	if _, err := h.rw.WriteString("HTTP/1.1 200 OK\r\n"); err != nil {
-		glog.V(logger.Debug).Infof("unable to write OPTIONS response: %v\n", err)
+		glog.V(logger.Error).Infof("unable to write OPTIONS response: %v\n", err)
 		return err
 	}
 	if err := responseHeaders.Write(h.rw); err != nil {
-		glog.V(logger.Debug).Infof("unable to write OPTIONS headers: %v\n", err)
+		glog.V(logger.Error).Infof("unable to write OPTIONS headers: %v\n", err)
 	}
 	if _, err := h.rw.WriteString("\r\n"); err != nil {
-		glog.V(logger.Debug).Infof("unable to write OPTIONS response: %v\n", err)
+		glog.V(logger.Error).Infof("unable to write OPTIONS response: %v\n", err)
 	}
-
-	h.rw.Flush()
 
 	return nil
 }

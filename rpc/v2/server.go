@@ -25,7 +25,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/ethereum/go-ethereum/logger"
-	"github.com/golang/glog"
+	"github.com/ethereum/go-ethereum/logger/glog"
 	"golang.org/x/net/context"
 	"gopkg.in/fatih/set.v0"
 )
