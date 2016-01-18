@@ -95,3 +95,17 @@ func (e *shutdownError) Code() int {
 func (e *shutdownError) Error() string {
 	return "server is shutting down"
 }
+
+// fatalError indicates that a non recoverable error has occurred rendering the
+// connection in an unreliable state.
+type fatalError struct {
+	message string
+}
+
+func (e *fatalError) Code() int {
+	return -32700
+}
+
+func (e *fatalError) Error() string {
+	return e.message
+}

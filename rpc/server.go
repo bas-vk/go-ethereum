@@ -152,7 +152,10 @@ func (s *Server) ServeCodec(codec ServerCodec) {
 		if err != nil {
 			glog.V(logger.Debug).Infof("%v\n", err)
 			codec.Write(codec.CreateErrorResponse(nil, err))
-			break
+			if _, ok := err.(*fatalError); ok {
+				break
+			}
+			continue
 		}
 
 		if atomic.LoadInt32(&s.run) != 1 {

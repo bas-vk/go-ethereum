@@ -113,7 +113,7 @@ func isBatch(msg json.RawMessage) bool {
 func (c *jsonCodec) ReadRequestHeaders() ([]rpcRequest, bool, RPCError) {
 	var incomingMsg json.RawMessage
 	if err := c.d.Decode(&incomingMsg); err != nil {
-		return nil, false, &invalidRequestError{err.Error()}
+		return nil, false, &fatalError{err.Error()}
 	}
 
 	if isBatch(incomingMsg) {
@@ -128,7 +128,7 @@ func (c *jsonCodec) ReadRequestHeaders() ([]rpcRequest, bool, RPCError) {
 func parseRequest(incomingMsg json.RawMessage) ([]rpcRequest, bool, RPCError) {
 	var in JSONRequest
 	if err := json.Unmarshal(incomingMsg, &in); err != nil {
-		return nil, false, &invalidMessageError{err.Error()}
+		return nil, false, &fatalError{err.Error()}
 	}
 
 	if in.Id == nil {
@@ -177,7 +177,7 @@ func parseRequest(incomingMsg json.RawMessage) ([]rpcRequest, bool, RPCError) {
 func parseBatchRequest(incomingMsg json.RawMessage) ([]rpcRequest, bool, RPCError) {
 	var in []JSONRequest
 	if err := json.Unmarshal(incomingMsg, &in); err != nil {
-		return nil, false, &invalidMessageError{err.Error()}
+		return nil, false, &fatalError{err.Error()}
 	}
 
 	requests := make([]rpcRequest, len(in))
