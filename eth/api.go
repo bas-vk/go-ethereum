@@ -554,6 +554,140 @@ func (s *PublicBlockChainAPI) Call(args CallArgs, blockNr rpc.BlockNumber) (stri
 	return result, err
 }
 
+type StructLogRes struct {
+	Pc      uint64            `json:"Pc"`
+	Op      string            `json:"Op"`
+	Gas     *big.Int          `json:Gas`
+	GasCost *big.Int          `json:GasCost`
+	Error   error             `json:Error`
+	Stack   []string          `json:"Stack"`
+	Memory  map[string]string `json:Memory`
+	Storage map[string]string `json:Storage`
+}
+
+type TransactionExecutionRes struct {
+	Gas         *big.Int       `json:Gas`
+	ReturnValue string         `json:ReturnValue`
+	StructLogs  []StructLogRes `json:StructLogs`
+}
+
+func (s *PublicBlockChainAPI) doDebugTransaction(txHash common.Hash) ([]vm.StructLog, []byte, *big.Int, error) {
+	// Retrieve the tx from the chain
+	txData, err := s.chainDb.Get(txHash.Bytes())
+	tx := new(types.Transaction)
+
+	if err == nil && len(txData) > 0 {
+		if err := rlp.DecodeBytes(txData, tx); err != nil {
+			return nil, nil, nil, err
+		}
+	} else {
+		return nil, nil, nil, fmt.Errorf("Transaction not found or not yet mined")
+	}
+
+	// Retrieve the block details
+	_, blockIndex, _, err := getTransactionBlockData(s.chainDb, txHash)
+	block := s.bc.GetBlockByNumber(blockIndex - 1)
+	if block == nil {
+		return nil, nil, nil, fmt.Errorf("Unable to retrieve prior block")
+	}
+
+	// Create the state database
+	stateDb, err := state.New(block.Root(), s.chainDb)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	stateDb = stateDb.Copy()
+
+	txFrom, err := tx.From()
+
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("Unable to create transaction sender")
+	}
+	from := stateDb.GetOrNewStateObject(txFrom)
+	msg := callmsg{
+		from:     from,
+		to:       tx.To(),
+		gas:      tx.Gas(),
+		gasPrice: tx.GasPrice(),
+		value:    tx.Value(),
+		data:     tx.Data(),
+	}
+
+	vmenv := core.NewEnv(stateDb, s.bc, msg, block.Header())
+	gp := new(core.GasPool).AddGas(block.GasLimit())
+	vm.GenerateStructLogs = true
+	ret, gas, err := core.ApplyMessage(vmenv, msg, gp)
+	vm.GenerateStructLogs = false
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("Error executing transaction %v", err)
+	}
+
+	return vmenv.StructLogs(), ret, gas, nil
+}
+
+func (s *PublicBlockChainAPI) DebugTransaction(txHash common.Hash, stackDepth rpc.Number, memorySize rpc.Number) (TransactionExecutionRes, error) {
+
+	structLogs, ret, gas, err := s.doDebugTransaction(txHash)
+
+	stackDepthInt := int(stackDepth.Int64())
+	memorySizeInt := int(memorySize.Int64())
+
+	if err != nil {
+		return TransactionExecutionRes{}, err
+	}
+
+	res := TransactionExecutionRes{
+		Gas:         gas,
+		ReturnValue: fmt.Sprintf("%x", ret),
+		StructLogs:  make([]StructLogRes, len(structLogs)),
+	}
+
+	for index, trace := range structLogs {
+
+		stackLength := len(trace.Stack)
+
+		// Return full stack by default
+		if stackDepthInt != -1 && stackDepthInt < stackLength {
+			stackLength = stackDepthInt
+		}
+
+		res.StructLogs[index] = StructLogRes{
+			Pc:      trace.Pc,
+			Op:      trace.Op.String(),
+			Gas:     trace.Gas,
+			GasCost: trace.GasCost,
+			Error:   trace.Err,
+			Stack:   make([]string, stackLength),
+			Memory:  make(map[string]string),
+			Storage: make(map[string]string),
+		}
+
+		for i := 0; i < stackLength; i++ {
+			res.StructLogs[index].Stack[i] = fmt.Sprintf("%x", common.LeftPadBytes(trace.Stack[i].Bytes(), 32))
+		}
+
+		addr := 0
+		memorySizeLocal := memorySizeInt
+
+		// Return full memory by default
+		if memorySize == -1 {
+			memorySizeLocal = len(trace.Memory)
+		}
+
+		for i := 0; i+16 <= len(trace.Memory) && addr < memorySizeLocal; i += 16 {
+			res.StructLogs[index].Memory[fmt.Sprintf("%04d", addr*16)] = fmt.Sprintf("%x", trace.Memory[i:i+16])
+			addr++
+		}
+
+		for storageIndex, storageValue := range trace.Storage {
+			res.StructLogs[index].Storage[fmt.Sprintf("%x", storageIndex)] = fmt.Sprintf("%x", storageValue)
+		}
+	}
+	return res, nil
+
+}
+
 // EstimateGas returns an estimate of the amount of gas needed to execute the given transaction.
 func (s *PublicBlockChainAPI) EstimateGas(args CallArgs) (*rpc.HexNumber, error) {
 	_, gas, err := s.doCall(args, rpc.LatestBlockNumber)
