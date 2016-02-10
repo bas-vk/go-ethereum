@@ -175,6 +175,8 @@ func (h *httpMessageStream) Write(payload []byte) (int, error) {
 	responseHeaders := make(http.Header)
 	responseHeaders.Set("Content-Type", "application/json")
 	responseHeaders.Set("Content-Length", strconv.Itoa(len(payload)))
+	responseHeaders.Set("Date", string(httpTimestamp(time.Now())))
+	responseHeaders.Set("Connection", "Keep-Alive")
 	if h.origin != "" {
 		responseHeaders.Set("Access-Control-Allow-Origin", h.origin)
 	}
