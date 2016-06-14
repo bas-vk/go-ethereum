@@ -132,6 +132,7 @@ func run(ctx *cli.Context) error {
 	vmdone := time.Since(tstart)
 
 	if ctx.GlobalBool(DumpFlag.Name) {
+		statedb.Commit()
 		fmt.Println(string(statedb.Dump()))
 	}
 	vm.StdErrFormat(vmenv.StructLogs())

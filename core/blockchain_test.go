@@ -476,7 +476,6 @@ func chm(genesis *types.Block, db ethdb.Database) *BlockChain {
 		chainDb:      db,
 		genesisBlock: genesis,
 		eventMux:     &eventMux,
-		pow:          FakePow{},
 		config:       testChainConfig(),
 	}
 	valFn := func() HeaderValidator { return bc.Validator() }
@@ -657,7 +656,7 @@ func testInsertNonceError(t *testing.T, full bool) {
 			failNum = blocks[failAt].NumberU64()
 			failHash = blocks[failAt].Hash()
 
-			blockchain.pow = failPow{failNum}
+			blockchain.finaliser = failPow{failNum}
 
 			failRes, err = blockchain.InsertChain(blocks)
 		} else {
@@ -667,7 +666,7 @@ func testInsertNonceError(t *testing.T, full bool) {
 			failNum = headers[failAt].Number.Uint64()
 			failHash = headers[failAt].Hash()
 
-			blockchain.pow = failPow{failNum}
+			blockchain.finaliser = failPow{failNum}
 			blockchain.validator = NewBlockValidator(testChainConfig(), blockchain, failPow{failNum})
 
 			failRes, err = blockchain.InsertHeaderChain(headers, 1)
@@ -732,7 +731,7 @@ func TestFastVsFullChains(t *testing.T) {
 	})
 	// Import the chain as an archive node for the comparison baseline
 	archiveDb, _ := ethdb.NewMemDatabase()
-	WriteGenesisBlockForTesting(archiveDb, GenesisAccount{address, funds})
+	WriteGenesisBlockForTesting(archiveDb, GenesisAccount{address, funds, nil, nil})
 
 	archive, _ := NewBlockChain(archiveDb, testChainConfig(), FakePow{}, new(event.TypeMux))
 
@@ -741,7 +740,7 @@ func TestFastVsFullChains(t *testing.T) {
 	}
 	// Fast import the chain as a non-archive node to test
 	fastDb, _ := ethdb.NewMemDatabase()
-	WriteGenesisBlockForTesting(fastDb, GenesisAccount{address, funds})
+	WriteGenesisBlockForTesting(fastDb, GenesisAccount{address, funds, nil, nil})
 	fast, _ := NewBlockChain(fastDb, testChainConfig(), FakePow{}, new(event.TypeMux))
 
 	headers := make([]*types.Header, len(blocks))
@@ -816,7 +815,7 @@ func TestLightVsFastVsFullChainHeads(t *testing.T) {
 	}
 	// Import the chain as an archive node and ensure all pointers are updated
 	archiveDb, _ := ethdb.NewMemDatabase()
-	WriteGenesisBlockForTesting(archiveDb, GenesisAccount{address, funds})
+	WriteGenesisBlockForTesting(archiveDb, GenesisAccount{address, funds, nil, nil})
 
 	archive, _ := NewBlockChain(archiveDb, testChainConfig(), FakePow{}, new(event.TypeMux))
 
@@ -829,7 +828,7 @@ func TestLightVsFastVsFullChainHeads(t *testing.T) {
 
 	// Import the chain as a non-archive node and ensure all pointers are updated
 	fastDb, _ := ethdb.NewMemDatabase()
-	WriteGenesisBlockForTesting(fastDb, GenesisAccount{address, funds})
+	WriteGenesisBlockForTesting(fastDb, GenesisAccount{address, funds, nil, nil})
 	fast, _ := NewBlockChain(fastDb, testChainConfig(), FakePow{}, new(event.TypeMux))
 
 	headers := make([]*types.Header, len(blocks))
@@ -848,7 +847,7 @@ func TestLightVsFastVsFullChainHeads(t *testing.T) {
 
 	// Import the chain as a light node and ensure all pointers are updated
 	lightDb, _ := ethdb.NewMemDatabase()
-	WriteGenesisBlockForTesting(lightDb, GenesisAccount{address, funds})
+	WriteGenesisBlockForTesting(lightDb, GenesisAccount{address, funds, nil, nil})
 	light, _ := NewBlockChain(lightDb, testChainConfig(), FakePow{}, new(event.TypeMux))
 
 	if n, err := light.InsertHeaderChain(headers, 1); err != nil {
@@ -874,9 +873,9 @@ func TestChainTxReorgs(t *testing.T) {
 		db, _   = ethdb.NewMemDatabase()
 	)
 	genesis := WriteGenesisBlockForTesting(db,
-		GenesisAccount{addr1, big.NewInt(1000000)},
-		GenesisAccount{addr2, big.NewInt(1000000)},
-		GenesisAccount{addr3, big.NewInt(1000000)},
+		GenesisAccount{addr1, big.NewInt(1000000), nil, nil},
+		GenesisAccount{addr2, big.NewInt(1000000), nil, nil},
+		GenesisAccount{addr3, big.NewInt(1000000), nil, nil},
 	)
 	// Create two transactions shared between the chains:
 	//  - postponed: transaction included at a later block in the forked chain
@@ -983,7 +982,7 @@ func TestLogReorgs(t *testing.T) {
 		code = common.Hex2Bytes("60606040525b7f24ec1d3ff24c2f6ff210738839dbc339cd45a5294d85c79361016243157aae7b60405180905060405180910390a15b600a8060416000396000f360606040526008565b00")
 	)
 	genesis := WriteGenesisBlockForTesting(db,
-		GenesisAccount{addr1, big.NewInt(10000000000000)},
+		GenesisAccount{addr1, big.NewInt(10000000000000), nil, nil},
 	)
 
 	evmux := &event.TypeMux{}
@@ -1019,7 +1018,7 @@ func TestReorgSideEvent(t *testing.T) {
 		db, _   = ethdb.NewMemDatabase()
 		key1, _ = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 		addr1   = crypto.PubkeyToAddress(key1.PublicKey)
-		genesis = WriteGenesisBlockForTesting(db, GenesisAccount{addr1, big.NewInt(10000000000000)})
+		genesis = WriteGenesisBlockForTesting(db, GenesisAccount{addr1, big.NewInt(10000000000000), nil, nil})
 	)
 
 	evmux := &event.TypeMux{}

@@ -144,6 +144,7 @@ type GenesisAccount struct {
 	Address common.Address
 	Balance *big.Int
 	Code    []byte
+	Storage map[string]string
 }
 
 func WriteGenesisBlockForTesting(db ethdb.Database, accounts ...GenesisAccount) *types.Block {
@@ -152,7 +153,21 @@ func WriteGenesisBlockForTesting(db ethdb.Database, accounts ...GenesisAccount) 
 		if i != 0 {
 			accountJson += ","
 		}
-		accountJson += fmt.Sprintf(`"0x%x":{"balance":"0x%x","code":"0x%x"}`, account.Address, account.Balance.Bytes(), account.Code)
+		if len(account.Storage) == 0 {
+			accountJson += fmt.Sprintf(`"0x%x":{"balance":"0x%x","code":"0x%x"}`, account.Address, account.Balance.Bytes(), account.Code)
+		} else {
+			accountJson += fmt.Sprintf(`"0x%x":{"balance":"0x%x","code":"0x%x", "storage": {`, account.Address, account.Balance.Bytes(), account.Code)
+			prefixComma := false
+			for key, value := range account.Storage {
+				if prefixComma {
+					accountJson += fmt.Sprintf(`,"%s": "%s"`, key, value)
+				} else {
+					accountJson += fmt.Sprintf(`"%s": "%s"`, key, value)
+				}
+				prefixComma = true
+			}
+			accountJson += "}}"
+		}
 	}
 	accountJson += "}"
 
@@ -162,6 +177,7 @@ func WriteGenesisBlockForTesting(db ethdb.Database, accounts ...GenesisAccount) 
 	"difficulty":"0x%x",
 	"alloc": %s
 }`, types.EncodeNonce(0), params.GenesisGasLimit.Bytes(), params.GenesisDifficulty.Bytes(), accountJson)
+
 	block, _ := WriteGenesisBlock(db, strings.NewReader(testGenesis))
 	return block
 }
