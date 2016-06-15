@@ -7,14 +7,16 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind/backends"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/ethereum/go-ethereum/logger/glog"
+	"github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/pow"
 )
 
@@ -25,31 +27,57 @@ type BlockMaker struct {
 	mux        *event.TypeMux
 	db         ethdb.Database
 
-	address     common.Address
-	abi         abi.ABI
-	key         *ecdsa.PrivateKey
-	selfAddress common.Address
+	address common.Address
+	abi     abi.ABI
+	key     *ecdsa.PrivateKey
+	session *VotingContractSession
 
 	quit chan struct{} // quit chan
 }
 
-func NewBlockMaker(chainConfig *core.ChainConfig, addr common.Address, bc *core.BlockChain, db ethdb.Database, mux *event.TypeMux) *BlockMaker {
+func startVoteSession(node *node.Node, addr common.Address, key *ecdsa.PrivateKey) (*VotingContractSession, error) {
+	client, err := node.Attach()
+	if err != nil {
+		return nil, err
+	}
+
+	contract, err := NewVotingContract(addr, backends.NewRPCBackend(client))
+	if err != nil {
+		panic(err)
+	}
+
+	txOpts := bind.NewKeyedTransactor(key)
+	txOpts.GasLimit = big.NewInt(5000000)
+	txOpts.GasPrice = new(big.Int)
+	txOpts.Value = new(big.Int)
+
+	session := &VotingContractSession{
+		Contract:     contract,
+		TransactOpts: *txOpts,
+	}
+
+	return session, nil
+}
+
+// NewBlockMaker creates a new block maker.
+func NewBlockMaker(chainConfig *core.ChainConfig, contractAddr common.Address, bc *core.BlockChain, db ethdb.Database,
+	mux *event.TypeMux, node *node.Node, key *ecdsa.PrivateKey) *BlockMaker {
+
+	voteSession, err := startVoteSession(node, contractAddr, key)
+
 	abi, err := abi.JSON(strings.NewReader(definition))
 	if err != nil {
 		panic(err)
 	}
 
-	key, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
-
 	bm := &BlockMaker{
 		chainConfig: chainConfig,
 		db:          db,
 		blockchain:  bc,
-		address:     addr,
 		abi:         abi,
 		key:         key,
-		selfAddress: crypto.PubkeyToAddress(key.PublicKey),
 		mux:         mux,
+		session:     voteSession,
 		quit:        make(chan struct{}),
 	}
 	go bm.update()
@@ -89,8 +117,7 @@ func (bm *BlockMaker) Stop() {
 }
 
 func (bm *BlockMaker) createHeader() (*types.Block, *types.Header) {
-	canonHash := common.BytesToHash(bm.call("getCanonHash"))
-	parent := findDecendant(canonHash, bm.blockchain)
+	parent := findDecendant(bm.CanonHash(), bm.blockchain)
 
 	tstamp := time.Now().Unix()
 	if parent.Time().Int64() >= tstamp {
@@ -141,59 +168,28 @@ func (bm *BlockMaker) Create(txs types.Transactions) (*types.Block, *state.State
 
 // CanonHash returns the hash of the latest block within the canonical chain.
 func (bm *BlockMaker) CanonHash() common.Hash {
-	return common.BytesToHash(bm.call("getCanonHash"))
+	hash, _ := bm.session.GetCanonHash()
+	return hash
 }
 
 // Vote for a block hash to be part of the canonical chain.
-// It returns the transaction that must be included in the next block.
-func (bm *BlockMaker) Vote(hash common.Hash, nonce uint64, key *ecdsa.PrivateKey) (*types.Transaction, error) {
-	vote, err := bm.abi.Pack("vote", hash)
-	if err != nil {
-		return nil, err
-	}
-	return types.NewTransaction(nonce, bm.address, new(big.Int), big.NewInt(200000), new(big.Int), vote).SignECDSA(key)
+func (bm *BlockMaker) Vote(hash common.Hash) (*types.Transaction, error) {
+	return bm.session.Vote(hash)
 }
 
 // AddVoter adds an address to the collection of addresses that are allowed to make votes.
-// The given nonce and key must already be allowed to vote.
-func (bm *BlockMaker) AddVoter(address common.Address, nonce uint64, key *ecdsa.PrivateKey) (*types.Transaction, error) {
-	addVoter, err := bm.abi.Pack("addVoter", address)
-	if err != nil {
-		return nil, err
-	}
-	return types.NewTransaction(nonce, bm.address, new(big.Int), big.NewInt(500000), new(big.Int), addVoter).SignECDSA(key)
+func (bm *BlockMaker) AddVoter(address common.Address) (*types.Transaction, error) {
+	return bm.session.AddVoter(address)
 }
 
-func (bm *BlockMaker) RemoveVoter(address common.Address, nonce uint64, key *ecdsa.PrivateKey) (*types.Transaction, error) {
-	removeVoter, err := bm.abi.Pack("removeVoter", address)
-	if err != nil {
-		return nil, err
-	}
-	return types.NewTransaction(nonce, bm.address, new(big.Int), big.NewInt(500000), new(big.Int), removeVoter).SignECDSA(key)
+// RemoveVoter deletes an address from the collection of addresses that are allowed to vote.
+func (bm *BlockMaker) RemoveVoter(address common.Address) (*types.Transaction, error) {
+	return bm.session.RemoveVoter(address)
 }
 
 func (bm *BlockMaker) Verify(block pow.Block) bool {
 	newBlock, _ := bm.Create(nil)
 	return newBlock.ParentHash() == block.(*types.Block).Hash()
-}
-
-func (bm *BlockMaker) call(method string, args ...interface{}) []byte {
-	input, err := bm.abi.Pack(method, args...)
-	if err != nil {
-		panic(err)
-	}
-	return bm.execute(input)
-}
-
-func (bm *BlockMaker) execute(input []byte) []byte {
-	header := bm.blockchain.CurrentHeader()
-	gasLimit := big.NewInt(3141592)
-	statedb, _ := state.New(header.Root, bm.db)
-	tx, _ := types.NewTransaction(statedb.GetNonce(bm.selfAddress), bm.address, new(big.Int), gasLimit, new(big.Int), input).SignECDSA(bm.key)
-	env := core.NewEnv(statedb, bm.chainConfig, bm.blockchain, tx, header, bm.chainConfig.VmConfig)
-
-	ret, _, _ := core.ApplyMessage(env, tx, new(core.GasPool).AddGas(gasLimit))
-	return ret
 }
 
 func findDecendant(hash common.Hash, blockchain *core.BlockChain) *types.Block {
