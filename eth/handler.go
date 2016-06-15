@@ -36,8 +36,8 @@ import (
 	"github.com/ethereum/go-ethereum/logger/glog"
 	"github.com/ethereum/go-ethereum/p2p"
 	"github.com/ethereum/go-ethereum/p2p/discover"
-	"github.com/ethereum/go-ethereum/pow"
 	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/ethereum/go-ethereum/core/quorum"
 )
 
 const (
@@ -91,7 +91,7 @@ type ProtocolManager struct {
 
 // NewProtocolManager returns a new ethereum sub protocol manager. The Ethereum sub protocol manages peers capable
 // with the ethereum network.
-func NewProtocolManager(config *core.ChainConfig, fastSync bool, networkId int, mux *event.TypeMux, txpool txPool, pow pow.PoW, blockchain *core.BlockChain, chaindb ethdb.Database) (*ProtocolManager, error) {
+func NewProtocolManager(config *core.ChainConfig, fastSync bool, networkId int, bm quorum.BlockMaker, mux *event.TypeMux, txpool txPool, blockchain *core.BlockChain, chaindb ethdb.Database) (*ProtocolManager, error) {
 	// Create the protocol manager with the base fields
 	manager := &ProtocolManager{
 		networkId:   networkId,
@@ -158,7 +158,7 @@ func NewProtocolManager(config *core.ChainConfig, fastSync bool, networkId int, 
 		manager.removePeer)
 
 	validator := func(block *types.Block, parent *types.Block) error {
-		return core.ValidateHeader(config, pow, block.Header(), parent.Header(), true, false)
+		return core.ValidateHeader(config, bm, block.Header(), parent.Header(), true, false)
 	}
 	heighter := func() uint64 {
 		return blockchain.CurrentBlock().NumberU64()

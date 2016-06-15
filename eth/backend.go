@@ -24,7 +24,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strings"
 	"sync"
 	"time"
 
@@ -35,6 +34,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/httpclient"
 	"github.com/ethereum/go-ethereum/common/registrar/ethreg"
 	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/quorum"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/eth/downloader"
@@ -43,7 +43,6 @@ import (
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/ethereum/go-ethereum/logger"
 	"github.com/ethereum/go-ethereum/logger/glog"
-	"github.com/ethereum/go-ethereum/miner"
 	"github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/p2p"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -115,7 +114,6 @@ type Ethereum struct {
 	txMu            sync.Mutex
 	blockchain      *core.BlockChain
 	accountManager  *accounts.Manager
-	pow             *ethash.Ethash
 	protocolManager *ProtocolManager
 	SolcPath        string
 	solc            *compiler.Solidity
@@ -130,11 +128,9 @@ type Ethereum struct {
 
 	httpclient *httpclient.HTTPClient
 
-	eventMux *event.TypeMux
-	miner    *miner.Miner
+	eventMux   *event.TypeMux
+	BlockMaker quorum.BlockMaker
 
-	Mining        bool
-	MinerThreads  int
 	NatSpec       bool
 	AutoDAG       bool
 	PowTest       bool
@@ -170,26 +166,6 @@ func New(ctx *node.ServiceContext, config *Config) (*Ethereum, error) {
 	}
 	glog.V(logger.Info).Infof("Protocol Versions: %v, Network Id: %v", ProtocolVersions, config.NetworkId)
 
-	// Load up any custom genesis block if requested
-	if len(config.Genesis) > 0 {
-		block, err := core.WriteGenesisBlock(chainDb, strings.NewReader(config.Genesis))
-		if err != nil {
-			return nil, err
-		}
-		glog.V(logger.Info).Infof("Successfully wrote custom genesis block: %x", block.Hash())
-	}
-
-	// Load up a test setup if directly injected
-	if config.TestGenesisState != nil {
-		chainDb = config.TestGenesisState
-	}
-	if config.TestGenesisBlock != nil {
-		core.WriteTd(chainDb, config.TestGenesisBlock.Hash(), config.TestGenesisBlock.NumberU64(), config.TestGenesisBlock.Difficulty())
-		core.WriteBlock(chainDb, config.TestGenesisBlock)
-		core.WriteCanonicalHash(chainDb, config.TestGenesisBlock.Hash(), config.TestGenesisBlock.NumberU64())
-		core.WriteHeadBlockHash(chainDb, config.TestGenesisBlock.Hash())
-	}
-
 	if !config.SkipBcVersionCheck {
 		bcVersion := core.GetBlockChainVersion(chainDb)
 		if bcVersion != config.BlockChainVersion && bcVersion != 0 {
@@ -209,7 +185,6 @@ func New(ctx *node.ServiceContext, config *Config) (*Ethereum, error) {
 		etherbase:               config.Etherbase,
 		netVersionId:            config.NetworkId,
 		NatSpec:                 config.NatSpec,
-		MinerThreads:            config.MinerThreads,
 		SolcPath:                config.SolcPath,
 		AutoDAG:                 config.AutoDAG,
 		PowTest:                 config.PowTest,
@@ -220,20 +195,6 @@ func New(ctx *node.ServiceContext, config *Config) (*Ethereum, error) {
 		GpobaseStepUp:           config.GpobaseStepUp,
 		GpobaseCorrectionFactor: config.GpobaseCorrectionFactor,
 		httpclient:              httpclient.New(config.DocRoot),
-	}
-	switch {
-	case config.PowTest:
-		glog.V(logger.Info).Infof("ethash used in test mode")
-		eth.pow, err = ethash.NewForTesting()
-		if err != nil {
-			return nil, err
-		}
-	case config.PowShared:
-		glog.V(logger.Info).Infof("ethash used in shared mode")
-		eth.pow = ethash.NewShared()
-
-	default:
-		eth.pow = ethash.New()
 	}
 
 	// load the genesis block or write a new one if no genesis
@@ -256,7 +217,7 @@ func New(ctx *node.ServiceContext, config *Config) (*Ethereum, error) {
 		ForceJit:  config.ForceJit,
 	}
 
-	eth.blockchain, err = core.NewBlockChain(chainDb, eth.chainConfig, eth.pow, eth.EventMux())
+	eth.blockchain, err = core.NewBlockChain(chainDb, eth.chainConfig, nil /*TODO*/, eth.EventMux())
 	if err != nil {
 		if err == core.ErrNoGenesis {
 			return nil, fmt.Errorf(`No chain found. Please initialise a new chain using the "init" subcommand.`)
@@ -268,12 +229,13 @@ func New(ctx *node.ServiceContext, config *Config) (*Ethereum, error) {
 	newPool := core.NewTxPool(eth.chainConfig, eth.EventMux(), eth.blockchain.State, eth.blockchain.GasLimit)
 	eth.txPool = newPool
 
-	if eth.protocolManager, err = NewProtocolManager(eth.chainConfig, config.FastSync, config.NetworkId, eth.eventMux, eth.txPool, eth.pow, eth.blockchain, chainDb); err != nil {
+	if eth.protocolManager, err = NewProtocolManager(eth.chainConfig, config.FastSync, config.NetworkId, eth.BlockMaker,
+		eth.eventMux, eth.txPool, eth.blockchain, chainDb); err != nil {
 		return nil, err
 	}
-	eth.miner = miner.New(eth, eth.chainConfig, eth.EventMux(), eth.pow)
-	eth.miner.SetGasPrice(config.GasPrice)
-	eth.miner.SetExtra(config.ExtraData)
+
+	// TODO temporary hard coded key, must be supplied
+	eth.BlockMaker = quorum.NewBlockVoting(eth.chainDb, eth.blockchain, eth.eventMux, quorum.MasterKey)
 
 	return eth, nil
 }
@@ -300,7 +262,7 @@ func (s *Ethereum) APIs() []rpc.API {
 		}, {
 			Namespace: "eth",
 			Version:   "1.0",
-			Service:   NewPublicBlockChainAPI(s.chainConfig, s.blockchain, s.miner, s.chainDb, s.gpo, s.eventMux, s.accountManager),
+			Service:   NewPublicBlockChainAPI(s.chainConfig, s.blockchain, s.BlockMaker, s.chainDb, s.gpo, s.eventMux, s.accountManager),
 			Public:    true,
 		}, {
 			Namespace: "eth",
@@ -310,18 +272,8 @@ func (s *Ethereum) APIs() []rpc.API {
 		}, {
 			Namespace: "eth",
 			Version:   "1.0",
-			Service:   NewPublicMinerAPI(s),
-			Public:    true,
-		}, {
-			Namespace: "eth",
-			Version:   "1.0",
 			Service:   downloader.NewPublicDownloaderAPI(s.protocolManager.downloader, s.eventMux),
 			Public:    true,
-		}, {
-			Namespace: "miner",
-			Version:   "1.0",
-			Service:   NewPrivateMinerAPI(s),
-			Public:    false,
 		}, {
 			Namespace: "txpool",
 			Version:   "1.0",
@@ -354,6 +306,11 @@ func (s *Ethereum) APIs() []rpc.API {
 			Namespace: "admin",
 			Version:   "1.0",
 			Service:   ethreg.NewPrivateRegistarAPI(s.chainConfig, s.blockchain, s.chainDb, s.txPool, s.accountManager),
+		}, {
+			Namespace: "voting",
+			Version:   "1.0",
+			Service:   NewPublicVotingAPI(s.BlockMaker.(*quorum.BlockVoting)),
+			Public:    true,
 		},
 	}
 }
@@ -373,16 +330,6 @@ func (s *Ethereum) Etherbase() (eb common.Address, err error) {
 	}
 	return eb, nil
 }
-
-// set in js console via admin interface or wrapper from cli flags
-func (self *Ethereum) SetEtherbase(etherbase common.Address) {
-	self.etherbase = etherbase
-	self.miner.SetEtherbase(etherbase)
-}
-
-func (s *Ethereum) StopMining()         { s.miner.Stop() }
-func (s *Ethereum) IsMining() bool      { return s.miner.Mining() }
-func (s *Ethereum) Miner() *miner.Miner { return s.miner }
 
 func (s *Ethereum) AccountManager() *accounts.Manager  { return s.accountManager }
 func (s *Ethereum) BlockChain() *core.BlockChain       { return s.blockchain }
@@ -409,6 +356,7 @@ func (s *Ethereum) Start(srvr *p2p.Server) error {
 	}
 	s.protocolManager.Start()
 	s.netRPCService = NewPublicNetAPI(srvr, s.NetVersion())
+
 	return nil
 }
 
@@ -421,7 +369,7 @@ func (s *Ethereum) Stop() error {
 	s.blockchain.Stop()
 	s.protocolManager.Stop()
 	s.txPool.Stop()
-	s.miner.Stop()
+	s.BlockMaker.Stop()
 	s.eventMux.Stop()
 
 	s.StopAutoDAG()

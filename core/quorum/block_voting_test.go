@@ -1,4 +1,4 @@
-package core
+package quorum
 
 /*
 func TestCreation(t *testing.T) {

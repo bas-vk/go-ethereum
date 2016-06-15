@@ -1,4 +1,4 @@
-package core
+package quorum
 
 import (
 	"crypto/ecdsa"
@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/ethereum/go-ethereum/logger/glog"
@@ -20,7 +21,15 @@ import (
 	"github.com/ethereum/go-ethereum/pow"
 )
 
-type BlockMaker struct {
+var (
+	contractAddress = common.HexToAddress("0x0000000000000000000000000000000000000020")
+
+	// temporary hard coded, must be supplied
+	MasterKey, _ = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+	masterAddr   = crypto.PubkeyToAddress(MasterKey.PublicKey)
+)
+
+type BlockVoting struct {
 	chainConfig *core.ChainConfig
 
 	blockchain *core.BlockChain
@@ -35,63 +44,67 @@ type BlockMaker struct {
 	quit chan struct{} // quit chan
 }
 
-func startVoteSession(node *node.Node, addr common.Address, key *ecdsa.PrivateKey) (*VotingContractSession, error) {
+// DeployVotingContract writes the genesis block with the voting contract included.
+func deployVotingContract(db ethdb.Database) {
+	glog.Infof("Deploy voting contract at %s\n", contractAddress.Hex())
+	core.WriteGenesisBlockForTesting(db, core.GenesisAccount{contractAddress, new(big.Int), common.FromHex(DeployCode), map[string]string{
+		"0000000000000000000000000000000000000000000000000000000000000001": "01",
+		// add addr1 as a voter
+		common.Bytes2Hex(crypto.Keccak256(append(common.LeftPadBytes(masterAddr[:], 32), common.LeftPadBytes([]byte{2}, 32)...))): "01",
+	}})
+}
+
+func (bv *BlockVoting) Attach(node *node.Node) error {
 	client, err := node.Attach()
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	contract, err := NewVotingContract(addr, backends.NewRPCBackend(client))
+	contract, err := NewVotingContract(contractAddress, backends.NewRPCBackend(client))
 	if err != nil {
-		panic(err)
+		return err
 	}
 
-	txOpts := bind.NewKeyedTransactor(key)
+	txOpts := bind.NewKeyedTransactor(bv.key)
 	txOpts.GasLimit = big.NewInt(5000000)
 	txOpts.GasPrice = new(big.Int)
 	txOpts.Value = new(big.Int)
 
-	session := &VotingContractSession{
+	bv.session = &VotingContractSession{
 		Contract:     contract,
 		TransactOpts: *txOpts,
 	}
 
-	return session, nil
+	return nil
 }
 
-// NewBlockMaker creates a new block maker.
-func NewBlockMaker(chainConfig *core.ChainConfig, contractAddr common.Address, bc *core.BlockChain, db ethdb.Database,
-	mux *event.TypeMux, node *node.Node, key *ecdsa.PrivateKey) *BlockMaker {
-
-	voteSession, err := startVoteSession(node, contractAddr, key)
+// NewBlockVoting creates a new block maker.
+func NewBlockVoting(db ethdb.Database, bc *core.BlockChain, mux *event.TypeMux, key *ecdsa.PrivateKey) *BlockVoting {
+	deployVotingContract(db)
 
 	abi, err := abi.JSON(strings.NewReader(definition))
 	if err != nil {
 		panic(err)
 	}
 
-	bm := &BlockMaker{
-		chainConfig: chainConfig,
-		db:          db,
-		blockchain:  bc,
-		abi:         abi,
-		key:         key,
-		mux:         mux,
-		session:     voteSession,
-		quit:        make(chan struct{}),
+	bm := &BlockVoting{
+		blockchain: bc,
+		abi:        abi,
+		key:        key,
+		mux:        mux,
+		quit:       make(chan struct{}),
 	}
-	go bm.update()
 
 	return bm
 }
 
 const blockTime = 5 * time.Second
 
-func (bm *BlockMaker) update() {
-	eventSub := bm.mux.Subscribe(core.ChainHeadEvent{})
+func (bv *BlockVoting) update() {
+	eventSub := bv.mux.Subscribe(core.ChainHeadEvent{})
 	eventCh := eventSub.Chan()
 
-	lastHeader := bm.blockchain.CurrentHeader()
+	lastHeader := bv.blockchain.CurrentHeader()
 	for {
 		select {
 		case event, ok := <-eventCh:
@@ -106,18 +119,23 @@ func (bm *BlockMaker) update() {
 				if ev.Block.Hash() != lastHeader.Hash() && ev.Block.Number().Cmp(lastHeader.Number) > 0 {
 				}
 			}
-		case <-bm.quit:
+		case <-bv.quit:
 			return
 		}
 	}
 }
 
-func (bm *BlockMaker) Stop() {
-	close(bm.quit)
+func (bv *BlockVoting) Start() {
+	go bv.update()
 }
 
-func (bm *BlockMaker) createHeader() (*types.Block, *types.Header) {
-	parent := findDecendant(bm.CanonHash(), bm.blockchain)
+func (bv *BlockVoting) Stop() {
+	close(bv.quit)
+}
+
+func (bv *BlockVoting) createHeader() (*types.Block, *types.Header) {
+	canonHash, _ := bv.CanonHash()
+	parent := findDecendant(canonHash, bv.blockchain)
 
 	tstamp := time.Now().Unix()
 	if parent.Time().Int64() >= tstamp {
@@ -127,7 +145,7 @@ func (bm *BlockMaker) createHeader() (*types.Block, *types.Header) {
 	return parent, &types.Header{
 		ParentHash: parent.Hash(),
 		Number:     new(big.Int).Add(parent.Number(), common.Big1),
-		Difficulty: core.CalcDifficulty(bm.chainConfig, uint64(tstamp), parent.Time().Uint64(), parent.Number(), parent.Difficulty()),
+		Difficulty: core.CalcDifficulty(bv.chainConfig, uint64(tstamp), parent.Time().Uint64(), parent.Number(), parent.Difficulty()),
 		GasLimit:   core.CalcGasLimit(parent),
 		GasUsed:    new(big.Int),
 		Time:       big.NewInt(tstamp),
@@ -135,16 +153,16 @@ func (bm *BlockMaker) createHeader() (*types.Block, *types.Header) {
 }
 
 // Create a new block and include the given transactions.
-func (bm *BlockMaker) Create(txs types.Transactions) (*types.Block, *state.StateDB) {
-	parent, header := bm.createHeader()
+func (bv *BlockVoting) Create(txs types.Transactions) (*types.Block, *state.StateDB) {
+	parent, header := bv.createHeader()
 
 	gp := new(core.GasPool).AddGas(header.GasLimit)
-	statedb, _ := state.New(parent.Root(), bm.db)
+	statedb, _ := state.New(parent.Root(), bv.db)
 	var receipts types.Receipts
 
 	for i, tx := range txs {
 		snap := statedb.Copy()
-		receipt, _, _, err := core.ApplyTransaction(bm.chainConfig, bm.blockchain, gp, statedb, header, tx, header.GasUsed, bm.chainConfig.VmConfig)
+		receipt, _, _, err := core.ApplyTransaction(bv.chainConfig, bv.blockchain, gp, statedb, header, tx, header.GasUsed, bv.chainConfig.VmConfig)
 		if err != nil {
 			switch {
 			case core.IsGasLimitErr(err):
@@ -167,28 +185,37 @@ func (bm *BlockMaker) Create(txs types.Transactions) (*types.Block, *state.State
 }
 
 // CanonHash returns the hash of the latest block within the canonical chain.
-func (bm *BlockMaker) CanonHash() common.Hash {
-	hash, _ := bm.session.GetCanonHash()
-	return hash
+func (bv *BlockVoting) CanonHash() (common.Hash, error) {
+	return bv.session.GetCanonHash()
 }
 
 // Vote for a block hash to be part of the canonical chain.
-func (bm *BlockMaker) Vote(hash common.Hash) (*types.Transaction, error) {
-	return bm.session.Vote(hash)
+func (bv *BlockVoting) Vote(hash common.Hash) (*types.Transaction, error) {
+	return bv.session.Vote(hash)
 }
 
 // AddVoter adds an address to the collection of addresses that are allowed to make votes.
-func (bm *BlockMaker) AddVoter(address common.Address) (*types.Transaction, error) {
-	return bm.session.AddVoter(address)
+func (bv *BlockVoting) AddVoter(address common.Address) (*types.Transaction, error) {
+	return bv.session.AddVoter(address)
 }
 
 // RemoveVoter deletes an address from the collection of addresses that are allowed to vote.
-func (bm *BlockMaker) RemoveVoter(address common.Address) (*types.Transaction, error) {
-	return bm.session.RemoveVoter(address)
+func (bv *BlockVoting) RemoveVoter(address common.Address) (*types.Transaction, error) {
+	return bv.session.RemoveVoter(address)
 }
 
-func (bm *BlockMaker) Verify(block pow.Block) bool {
-	newBlock, _ := bm.Create(nil)
+// GetSize returns the current period.
+func (bv *BlockVoting) GetSize() (*big.Int, error) {
+	return bv.session.GetSize()
+}
+
+func (bv *BlockVoting) VoterCount() (*big.Int, error) {
+	return bv.session.VoterCount()
+}
+
+func (bv *BlockVoting) Verify(block pow.Block) bool {
+	// TODO, add additional validation
+	newBlock, _ := bv.Create(nil)
 	return newBlock.ParentHash() == block.(*types.Block).Hash()
 }
 

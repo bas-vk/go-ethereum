@@ -27,6 +27,7 @@ var Modules = map[string]string{
 	"rpc":      RPC_JS,
 	"shh":      Shh_JS,
 	"txpool":   TxPool_JS,
+	"voting":   Voting_JS,
 }
 
 const Admin_JS = `
@@ -493,6 +494,28 @@ web3._extend({
 				status.queued = web3._extend.utils.toDecimal(status.queued);
 				return status;
 			}
+		})
+	]
+});
+`
+
+const Voting_JS = `
+web3._extend({
+	property: 'voting',
+	methods: [],
+	properties:
+	[
+		new web3._extend.Property({
+			name: 'canonicalHash',
+			getter: 'voting_canonicalHash'
+		}),
+		new web3._extend.Property({
+			name: 'period',
+			getter: 'voting_period'
+		}),
+		new web3._extend.Property({
+			name: 'voterCount',
+			getter: 'voting_voterCount'
 		})
 	]
 });
