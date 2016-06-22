@@ -35,7 +35,9 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/eth/filters"
 	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/event"
 	"github.com/ethereum/go-ethereum/logger"
 	"github.com/ethereum/go-ethereum/logger/glog"
 	"github.com/ethereum/go-ethereum/p2p"
@@ -346,14 +348,16 @@ func (s *PrivateAccountAPI) SignAndSendTransaction(ctx context.Context, args Sen
 // It offers only methods that operate on public data that is freely available to anyone.
 type PublicBlockChainAPI struct {
 	b                       Backend
+	fm                      *filters.Manager
 	muNewBlockSubscriptions sync.Mutex                             // protects newBlocksSubscriptions
 	newBlockSubscriptions   map[string]func(core.ChainEvent) error // callbacks for new block subscriptions
 }
 
 // NewPublicBlockChainAPI creates a new Etheruem blockchain API.
-func NewPublicBlockChainAPI(b Backend) *PublicBlockChainAPI {
+func NewPublicBlockChainAPI(b Backend, mux *event.TypeMux) *PublicBlockChainAPI {
 	api := &PublicBlockChainAPI{
-		b: b,
+		b:  b,
+		fm: filters.NewManager(mux),
 		newBlockSubscriptions: make(map[string]func(core.ChainEvent) error),
 	}
 
@@ -476,37 +480,129 @@ type NewBlocksArgs struct {
 	TransactionDetails  bool `json:"transactionDetails"`
 }
 
+func formatBlock(backend Backend, block *types.Block, args NewBlocksArgs) (map[string]interface{}, error) {
+	fields := map[string]interface{}{
+		"number":           rpc.NewHexNumber(block.Number()),
+		"hash":             block.Hash(),
+		"parentHash":       block.ParentHash(),
+		"nonce":            block.Header().Nonce,
+		"sha3Uncles":       block.UncleHash(),
+		"logsBloom":        block.Bloom(),
+		"stateRoot":        block.Root(),
+		"miner":            block.Coinbase(),
+		"difficulty":       rpc.NewHexNumber(block.Difficulty()),
+		"totalDifficulty":  rpc.NewHexNumber(backend.GetTd(block.Hash())),
+		"extraData":        fmt.Sprintf("0x%x", block.Extra()),
+		"size":             rpc.NewHexNumber(block.Size().Int64()),
+		"gasLimit":         rpc.NewHexNumber(block.GasLimit()),
+		"gasUsed":          rpc.NewHexNumber(block.GasUsed()),
+		"timestamp":        rpc.NewHexNumber(block.Time()),
+		"transactionsRoot": block.TxHash(),
+		"receiptRoot":      block.ReceiptHash(),
+	}
+
+	if args.IncludeTransactions {
+		formatTx := func(tx *types.Transaction) (interface{}, error) {
+			return tx.Hash(), nil
+		}
+
+		if args.TransactionDetails {
+			formatTx = func(tx *types.Transaction) (interface{}, error) {
+				return newRPCTransaction(block, tx.Hash())
+			}
+		}
+
+		txs := block.Transactions()
+		transactions := make([]interface{}, len(txs))
+		var err error
+		for i, tx := range block.Transactions() {
+			if transactions[i], err = formatTx(tx); err != nil {
+				return nil, err
+			}
+		}
+		fields["transactions"] = transactions
+	}
+
+	uncles := block.Uncles()
+	uncleHashes := make([]common.Hash, len(uncles))
+	for i, uncle := range uncles {
+		uncleHashes[i] = uncle.Hash()
+	}
+	fields["uncles"] = uncleHashes
+
+	return fields, nil
+}
+
 // NewBlocks triggers a new block event each time a block is appended to the chain. It accepts an argument which allows
 // the caller to specify whether the output should contain transactions and in what format.
-func (s *PublicBlockChainAPI) NewBlocks(ctx context.Context, args NewBlocksArgs) (rpc.Subscription, error) {
+func (s *PublicBlockChainAPI) NewBlocks(ctx context.Context, formatArgs NewBlocksArgs) (rpc.SubscriptionID, error) {
 	notifier, supported := rpc.NotifierFromContext(ctx)
 	if !supported {
-		return nil, rpc.ErrNotificationsUnsupported
+		return rpc.SubscriptionID(""), rpc.ErrNotificationsUnsupported
 	}
 
-	// create a subscription that will remove itself when unsubscribed/cancelled
-	subscription, err := notifier.NewSubscription(func(subId string) {
-		s.muNewBlockSubscriptions.Lock()
-		delete(s.newBlockSubscriptions, subId)
-		s.muNewBlockSubscriptions.Unlock()
-	})
-
+	blocks := make(chan *types.Block)
+	sub, err := s.fm.SubscribeChainEvent(blocks)
 	if err != nil {
-		return nil, err
+		close(blocks)
+		return rpc.SubscriptionID(""), err
 	}
 
-	// add a callback that is called on chain events which will format the block and notify the client
-	s.muNewBlockSubscriptions.Lock()
-	s.newBlockSubscriptions[subscription.ID()] = func(e core.ChainEvent) error {
-		notification, err := s.rpcOutputBlock(e.Block, args.IncludeTransactions, args.TransactionDetails)
-		if err == nil {
-			return subscription.Notify(notification)
-		}
-		glog.V(logger.Warn).Info("unable to format block %v\n", err)
-		return nil
+	unsubscribeCallback := func(id rpc.SubscriptionID) {
+		sub.Cancel() // cancel in filter manager
+		close(blocks)
 	}
-	s.muNewBlockSubscriptions.Unlock()
-	return subscription, nil
+
+	subID, err := notifier.NewSubscription(unsubscribeCallback)
+	if err != nil {
+		sub.Cancel()
+		close(blocks)
+		return subID, err
+	}
+
+	go func() {
+		retry := true
+		for {
+			select {
+			case block, ok := <-blocks: // new block -> send notification
+				if !ok { // unsubscribe
+					return
+				}
+				notification, err := formatBlock(s.b, block, formatArgs)
+				if err != nil {
+					notifier.Unsubscribe(subID)
+					glog.V(logger.Warn).Infof("unable to create notification for new blocks subscription %s: %v", subID, err)
+					return
+				}
+				if err := notifier.Send(subID, notification); err != nil {
+					notifier.Unsubscribe(subID)
+					glog.V(logger.Warn).Infof("unable to send notification for new blocks subscription %s: %v", subID, err)
+					return
+				}
+				retry = true
+			case err, ok := <-sub.Err(): // subscription raised an error/was unsubscribed
+				if ok {
+					sub.Cancel()
+				}
+				if retry && err != nil { // got an error, recreate subscription
+					blocks = make(chan *types.Block)
+					sub, err = s.fm.SubscribeChainEvent(blocks)
+					if err != nil {
+						close(blocks)
+						return
+					}
+					retry = false
+					continue
+				}
+				return
+			case <-notifier.Closed(): // connection closed
+				sub.Cancel()
+				return
+			}
+		}
+	}()
+
+	return subID, nil
 }
 
 // GetCode returns the code stored at the given address in the state for the given block number.
@@ -869,21 +965,22 @@ func newRPCTransaction(b *types.Block, txHash common.Hash) (*RPCTransaction, err
 type PublicTransactionPoolAPI struct {
 	b               Backend
 	muPendingTxSubs sync.Mutex
-	pendingTxSubs   map[string]rpc.Subscription
+	//	pendingTxSubs   map[string]rpc.Subscription
 }
 
 // NewPublicTransactionPoolAPI creates a new RPC service with methods specific for the transaction pool.
 func NewPublicTransactionPoolAPI(b Backend) *PublicTransactionPoolAPI {
 	api := &PublicTransactionPoolAPI{
-		b:             b,
-		pendingTxSubs: make(map[string]rpc.Subscription),
+		b: b,
+		//pendingTxSubs: make(map[string]rpc.Subscription),
 	}
 
-	go api.subscriptionLoop()
+	//	go api.subscriptionLoop()
 
 	return api
 }
 
+/*
 // subscriptionLoop listens for events on the global event mux and creates notifications for subscriptions.
 func (s *PublicTransactionPoolAPI) subscriptionLoop() {
 	sub := s.b.EventMux().Subscribe(core.TxPreEvent{})
@@ -902,6 +999,7 @@ func (s *PublicTransactionPoolAPI) subscriptionLoop() {
 		}
 	}
 }
+*/
 
 func getTransaction(chainDb ethdb.Database, b Backend, txHash common.Hash) (*types.Transaction, bool, error) {
 	txData, err := chainDb.Get(txHash.Bytes())
@@ -1353,6 +1451,7 @@ func (s *PublicTransactionPoolAPI) PendingTransactions() []*RPCTransaction {
 	return transactions
 }
 
+/* TODO
 // NewPendingTransactions creates a subscription that is triggered each time a transaction enters the transaction pool
 // and is send from one of the transactions this nodes manages.
 func (s *PublicTransactionPoolAPI) NewPendingTransactions(ctx context.Context) (rpc.Subscription, error) {
@@ -1377,6 +1476,7 @@ func (s *PublicTransactionPoolAPI) NewPendingTransactions(ctx context.Context) (
 
 	return subscription, nil
 }
+*/
 
 // Resend accepts an existing transaction and a new gas price and limit. It will remove the given transaction from the
 // pool and reinsert it with the new gas price and limit.

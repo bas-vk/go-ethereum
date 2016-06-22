@@ -166,8 +166,9 @@ func (s *Server) serveRequest(codec ServerCodec, singleShot bool, options CodecO
 	// to send notification to clients. It is thight to the codec/connection. If the
 	// connection is closed the notifier will stop and cancels all active subscriptions.
 	if options&OptionSubscriptions == OptionSubscriptions {
-		ctx = context.WithValue(ctx, notifierKey{}, newBufferedNotifier(codec, notificationBufferSize))
+		ctx = context.WithValue(ctx, notifierKey{}, newNotifier(codec, notificationBufferSize))
 	}
+
 	s.codecsMu.Lock()
 	if atomic.LoadInt32(&s.run) != 1 { // server stopped
 		s.codecsMu.Unlock()
@@ -246,20 +247,6 @@ func (s *Server) Stop() {
 	}
 }
 
-// createSubscription will call the subscription callback and returns the subscription id or error.
-func (s *Server) createSubscription(ctx context.Context, c ServerCodec, req *serverRequest) (string, error) {
-	// subscription have as first argument the context following optional arguments
-	args := []reflect.Value{req.callb.rcvr, reflect.ValueOf(ctx)}
-	args = append(args, req.args...)
-	reply := req.callb.method.Func.Call(args)
-
-	if !reply[1].IsNil() { // subscription creation failed
-		return "", reply[1].Interface().(error)
-	}
-
-	return reply[0].Interface().(Subscription).ID(), nil
-}
-
 // handle executes a request and returns the response from the callback.
 func (s *Server) handle(ctx context.Context, codec ServerCodec, req *serverRequest) (interface{}, func()) {
 	if req.err != nil {
@@ -274,31 +261,16 @@ func (s *Server) handle(ctx context.Context, codec ServerCodec, req *serverReque
 			}
 
 			subid := req.args[0].String()
-			if err := notifier.Unsubscribe(subid); err != nil {
+			if err := notifier.Unsubscribe(SubscriptionID(subid)); err != nil {
 				return codec.CreateErrorResponse(&req.id, &callbackError{err.Error()}), nil
 			}
 
 			return codec.CreateResponse(req.id, true), nil
 		}
 		return codec.CreateErrorResponse(&req.id, &invalidParamsError{"Expected subscription id as first argument"}), nil
+
 	}
 
-	if req.callb.isSubscribe {
-		subid, err := s.createSubscription(ctx, codec, req)
-		if err != nil {
-			return codec.CreateErrorResponse(&req.id, &callbackError{err.Error()}), nil
-		}
-
-		// active the subscription after the sub id was successfully sent to the client
-		activateSub := func() {
-			notifier, _ := NotifierFromContext(ctx)
-			notifier.(*bufferedNotifier).activate(subid)
-		}
-
-		return codec.CreateResponse(req.id, subid), activateSub
-	}
-
-	// regular RPC call, prepare arguments
 	if len(req.args) != len(req.callb.argTypes) {
 		rpcErr := &invalidParamsError{fmt.Sprintf("%s%s%s expects %d parameters, got %d",
 			req.svcname, serviceMethodSeparator, req.callb.method.Name,
@@ -327,6 +299,19 @@ func (s *Server) handle(ctx context.Context, codec ServerCodec, req *serverReque
 			return res, nil
 		}
 	}
+
+	// test if method call was an subscription subscribe request
+	if req.callb.isSubscribe {
+		// first returned value is the subscription id, return a callback that is called
+		// after the respone is written to the client (e.g. client has received subid).
+		subid := reply[0].String()
+		activateSub := func() {
+			notifier, _ := NotifierFromContext(ctx)
+			notifier.enable(SubscriptionID(subid))
+		}
+		return codec.CreateResponse(req.id, subid), activateSub
+	}
+
 	return codec.CreateResponse(req.id, reply[0].Interface()), nil
 }
 

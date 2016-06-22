@@ -19,10 +19,7 @@ package downloader
 import (
 	"sync"
 
-	"golang.org/x/net/context"
-
 	"github.com/ethereum/go-ethereum/event"
-	"github.com/ethereum/go-ethereum/rpc"
 )
 
 // PublicDownloaderAPI provides an API which gives information about the current synchronisation status.
@@ -31,12 +28,12 @@ type PublicDownloaderAPI struct {
 	d                   *Downloader
 	mux                 *event.TypeMux
 	muSyncSubscriptions sync.Mutex
-	syncSubscriptions   map[string]rpc.Subscription
+	// TODO syncSubscriptions   map[string]rpc.Subscription
 }
 
 // NewPublicDownloaderAPI create a new PublicDownloaderAPI.
 func NewPublicDownloaderAPI(d *Downloader, m *event.TypeMux) *PublicDownloaderAPI {
-	api := &PublicDownloaderAPI{d: d, mux: m, syncSubscriptions: make(map[string]rpc.Subscription)}
+	api := &PublicDownloaderAPI{d: d, mux: m /*syncSubscriptions: make(map[string]rpc.Subscription)*/}
 
 	go api.run()
 
@@ -44,6 +41,7 @@ func NewPublicDownloaderAPI(d *Downloader, m *event.TypeMux) *PublicDownloaderAP
 }
 
 func (api *PublicDownloaderAPI) run() {
+	/* TODO
 	sub := api.mux.Subscribe(StartEvent{}, DoneEvent{}, FailedEvent{})
 
 	for event := range sub.Chan() {
@@ -66,6 +64,7 @@ func (api *PublicDownloaderAPI) run() {
 		}
 		api.muSyncSubscriptions.Unlock()
 	}
+	*/
 }
 
 // Progress gives progress indications when the node is synchronising with the Ethereum network.
@@ -83,6 +82,11 @@ type SyncingResult struct {
 	Status  Progress `json:"status"`
 }
 
+func (api *PublicDownloaderAPI) Dummy() string {
+	return "make sure there is one method in this API, otherwise an error is raied in the rpc server"
+}
+
+/* TODO
 // Syncing provides information when this nodes starts synchronising with the Ethereum network and when it's finished.
 func (api *PublicDownloaderAPI) Syncing(ctx context.Context) (rpc.Subscription, error) {
 	notifier, supported := rpc.NotifierFromContext(ctx)
@@ -106,3 +110,4 @@ func (api *PublicDownloaderAPI) Syncing(ctx context.Context) (rpc.Subscription, 
 
 	return subscription, nil
 }
+*/

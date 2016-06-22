@@ -28,6 +28,11 @@ import (
 	"golang.org/x/net/context"
 )
 
+var (
+	// ErrUnableToGenerateSubscriptionID is returned when the subscription ID could not be generated.
+	ErrUnableToGenerateSubscriptionID = errors.New("Unable to generate subscription id")
+)
+
 // Is this an exported - upper case - name?
 func isExported(name string) bool {
 	rune, _ := utf8.DecodeRuneInString(name)
@@ -64,7 +69,7 @@ func isErrorType(t reflect.Type) bool {
 	return t.Implements(errorType)
 }
 
-var subscriptionType = reflect.TypeOf((*Subscription)(nil)).Elem()
+var subscriptionType = reflect.TypeOf((*SubscriptionID)(nil)).Elem()
 
 // isSubscriptionType returns an indication if the given t is of Subscription or *Subscription type
 func isSubscriptionType(t reflect.Type) bool {
@@ -218,11 +223,11 @@ METHODS:
 	return callbacks, subscriptions
 }
 
-func newSubscriptionID() (string, error) {
+func newSubscriptionID() (SubscriptionID, error) {
 	var subid [16]byte
 	n, _ := rand.Read(subid[:])
 	if n != 16 {
-		return "", errors.New("Unable to generate subscription id")
+		return "", ErrUnableToGenerateSubscriptionID
 	}
-	return "0x" + hex.EncodeToString(subid[:]), nil
+	return SubscriptionID("0x" + hex.EncodeToString(subid[:])), nil
 }

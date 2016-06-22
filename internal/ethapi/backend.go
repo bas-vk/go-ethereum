@@ -69,7 +69,7 @@ type State interface {
 	GetNonce(ctx context.Context, addr common.Address) (uint64, error)
 }
 
-func GetAPIs(apiBackend Backend, solcPath *string, solc **compiler.Solidity) []rpc.API {
+func GetAPIs(apiBackend Backend, solcPath *string, solc **compiler.Solidity, mux *event.TypeMux) []rpc.API {
 	return []rpc.API{
 		{
 			Namespace: "eth",
@@ -79,7 +79,7 @@ func GetAPIs(apiBackend Backend, solcPath *string, solc **compiler.Solidity) []r
 		}, {
 			Namespace: "eth",
 			Version:   "1.0",
-			Service:   NewPublicBlockChainAPI(apiBackend),
+			Service:   NewPublicBlockChainAPI(apiBackend, mux),
 			Public:    true,
 		}, {
 			Namespace: "eth",

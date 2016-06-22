@@ -306,7 +306,7 @@ func CreatePoW(config *Config) (*ethash.Ethash, error) {
 // APIs returns the collection of RPC services the ethereum package offers.
 // NOTE, some of these services probably need to be moved to somewhere else.
 func (s *Ethereum) APIs() []rpc.API {
-	return append(ethapi.GetAPIs(s.apiBackend, &s.solcPath, &s.solc), []rpc.API{
+	return append(ethapi.GetAPIs(s.apiBackend, &s.solcPath, &s.solc, s.eventMux), []rpc.API{
 		{
 			Namespace: "eth",
 			Version:   "1.0",
