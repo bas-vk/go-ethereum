@@ -502,7 +502,18 @@ web3._extend({
 const Voting_JS = `
 web3._extend({
 	property: 'voting',
-	methods: [],
+	methods: [
+		new web3._extend.Method({
+			name: 'makeBlock',
+			call: 'voting_makeBlock',
+			params: 0
+		}),
+		new web3._extend.Method({
+			name: 'vote',
+			call: 'voting_vote',
+			params: 1
+		})
+	],
 	properties:
 	[
 		new web3._extend.Property({

@@ -217,7 +217,9 @@ func New(ctx *node.ServiceContext, config *Config) (*Ethereum, error) {
 		ForceJit:  config.ForceJit,
 	}
 
-	eth.blockchain, err = core.NewBlockChain(chainDb, eth.chainConfig, nil /*TODO*/, eth.EventMux())
+	verifier := quorum.NewVerifier()
+
+	eth.blockchain, err = core.NewBlockChain(chainDb, eth.chainConfig, verifier, eth.EventMux())
 	if err != nil {
 		if err == core.ErrNoGenesis {
 			return nil, fmt.Errorf(`No chain found. Please initialise a new chain using the "init" subcommand.`)
@@ -235,7 +237,7 @@ func New(ctx *node.ServiceContext, config *Config) (*Ethereum, error) {
 	}
 
 	// TODO temporary hard coded key, must be supplied
-	eth.BlockMaker = quorum.NewBlockVoting(eth.chainDb, eth.blockchain, eth.eventMux, quorum.MasterKey)
+	eth.BlockMaker = quorum.NewBlockVoting(eth.chainConfig, eth.chainDb, eth.blockchain, eth.txPool, eth.eventMux, quorum.MasterKey)
 
 	return eth, nil
 }
@@ -309,8 +311,7 @@ func (s *Ethereum) APIs() []rpc.API {
 		}, {
 			Namespace: "voting",
 			Version:   "1.0",
-			Service:   NewPublicVotingAPI(s.BlockMaker.(*quorum.BlockVoting)),
-			Public:    true,
+			Service:   quorum.NewPrivateBlockVotingAPI(s.BlockMaker.(*quorum.BlockVoting), s.eventMux),
 		},
 	}
 }

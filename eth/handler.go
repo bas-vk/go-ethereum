@@ -27,6 +27,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/quorum"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/downloader"
 	"github.com/ethereum/go-ethereum/eth/fetcher"
@@ -37,7 +38,6 @@ import (
 	"github.com/ethereum/go-ethereum/p2p"
 	"github.com/ethereum/go-ethereum/p2p/discover"
 	"github.com/ethereum/go-ethereum/rlp"
-	"github.com/ethereum/go-ethereum/core/quorum"
 )
 
 const (
@@ -158,7 +158,7 @@ func NewProtocolManager(config *core.ChainConfig, fastSync bool, networkId int, 
 		manager.removePeer)
 
 	validator := func(block *types.Block, parent *types.Block) error {
-		return core.ValidateHeader(config, bm, block.Header(), parent.Header(), true, false)
+		return core.ValidateHeader(config, quorum.NewVerifier(), block.Header(), parent.Header(), true, false)
 	}
 	heighter := func() uint64 {
 		return blockchain.CurrentBlock().NumberU64()

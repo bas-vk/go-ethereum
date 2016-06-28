@@ -164,6 +164,10 @@ func (pool *TxPool) Stop() {
 }
 
 func (pool *TxPool) State() *state.ManagedState {
+	if pool.pendingState == nil {
+		pool.resetState()
+	}
+
 	pool.mu.RLock()
 	defer pool.mu.RUnlock()
 

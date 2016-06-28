@@ -60,8 +60,8 @@ const defaultGas = uint64(90000)
 func blockByNumber(bm quorum.BlockMaker, bc *core.BlockChain, blockNr rpc.BlockNumber) *types.Block {
 	// Pending block is only known by the miner
 	if blockNr == rpc.PendingBlockNumber {
-		//TODO block, _ := m.Pending()
-		//return block
+		block, _ := bm.Pending()
+		return block
 	}
 
 	// Otherwise resolve and return the block
@@ -78,9 +78,8 @@ func blockByNumber(bm quorum.BlockMaker, bc *core.BlockChain, blockNr rpc.BlockN
 func stateAndBlockByNumber(bm quorum.BlockMaker, bc *core.BlockChain, blockNr rpc.BlockNumber, chainDb ethdb.Database) (*state.StateDB, *types.Block, error) {
 	// Pending state is only known by the miner
 	if blockNr == rpc.PendingBlockNumber {
-		//TODO
-		//block, state := m.Pending()
-		//return state, block, nil
+		block, state := bm.Pending()
+		return state, block, nil
 	}
 	// Otherwise resolve the block number and return its state
 	block := blockByNumber(bm, bc, blockNr)
@@ -399,12 +398,12 @@ type PublicBlockChainAPI struct {
 // NewPublicBlockChainAPI creates a new Etheruem blockchain API.
 func NewPublicBlockChainAPI(config *core.ChainConfig, bc *core.BlockChain, bm quorum.BlockMaker, chainDb ethdb.Database, gpo *GasPriceOracle, eventMux *event.TypeMux, am *accounts.Manager) *PublicBlockChainAPI {
 	api := &PublicBlockChainAPI{
-		config:     config,
-		bc:         bc,
-		bm: bm,
-		chainDb:    chainDb,
-		eventMux:   eventMux,
-		am:         am,
+		config:   config,
+		bc:       bc,
+		bm:       bm,
+		chainDb:  chainDb,
+		eventMux: eventMux,
+		am:       am,
 		newBlockSubscriptions: make(map[string]func(core.ChainEvent) error),
 		gpo: gpo,
 	}
@@ -1845,22 +1844,4 @@ func (s *PublicNetAPI) Version() string {
 
 type PublicBlockVotingAPI struct {
 	vote *quorum.BlockVoting
-}
-
-// NewPublicVotingAPI creates a new voting API.
-func NewPublicVotingAPI(vote *quorum.BlockVoting) *PublicBlockVotingAPI {
-	return &PublicBlockVotingAPI{vote}
-}
-
-// CanonicalHash returns the canonical hash for the block voting algorithm.
-func (api *PublicBlockVotingAPI) CanonicalHash() (common.Hash, error) {
-	return api.vote.CanonHash()
-}
-
-func (api *PublicBlockVotingAPI) Period() (*big.Int, error) {
-	return api.vote.GetSize()
-}
-
-func (api *PublicBlockVotingAPI) VoterCount() (*big.Int, error) {
-	return api.vote.VoterCount()
 }
