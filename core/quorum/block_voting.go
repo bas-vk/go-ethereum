@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+	"sync"
 	"time"
+
+	"gopkg.in/fatih/set.v0"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -24,7 +27,6 @@ import (
 	"github.com/ethereum/go-ethereum/logger/glog"
 	"github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/pow"
-	"gopkg.in/fatih/set.v0"
 )
 
 const definition = `[{"constant":false,"inputs":[{"name":"addr","type":"address"}],"name":"removeVoter","outputs":[],"type":"function"},{"constant":true,"inputs":[{"name":"p","type":"uint256"},{"name":"n","type":"uint256"}],"name":"getEntry","outputs":[{"name":"","type":"bytes32"}],"type":"function"},{"constant":false,"inputs":[{"name":"hash","type":"bytes32"}],"name":"vote","outputs":[],"type":"function"},{"constant":true,"inputs":[{"name":"","type":"address"}],"name":"canVote","outputs":[{"name":"","type":"bool"}],"type":"function"},{"constant":true,"inputs":[],"name":"getSize","outputs":[{"name":"","type":"uint256"}],"type":"function"},{"constant":false,"inputs":[{"name":"addr","type":"address"}],"name":"addVoter","outputs":[],"type":"function"},{"constant":true,"inputs":[],"name":"getCanonHash","outputs":[{"name":"","type":"bytes32"}],"type":"function"},{"inputs":[],"type":"constructor"}]`
@@ -38,6 +40,8 @@ var (
 	masterAddr   = crypto.PubkeyToAddress(MasterKey.PublicKey)
 
 	ErrSynchronising = errors.New("could not create block: synchronising blockchain")
+
+	gasPrice = common.Big0 // use a zero gas price for consortium chain
 )
 
 type PrivateBlockVotingAPI struct {
@@ -81,12 +85,16 @@ func (api *PrivateBlockVotingAPI) MakeBlock() (bool, error) {
 // MakeBlock is posted to the event mux when BlockVoting must generate a block.
 type MakeBlock struct{}
 
-// pendingState holds the state that will be converted into a "mined" block.
-type work struct {
-	header             *types.Header
-	state              *state.StateDB
-	receipts           types.Receipts
-	ignoredTransactors *set.Set
+// pendingState holds the state where a new block will be based on.
+type pendingState struct {
+	header   *types.Header
+	state    *state.StateDB
+	receipts types.Receipts
+	txs      types.Transactions
+	config   *core.ChainConfig
+
+	removed            *set.Set // transactions which are removed due to an error on execution
+	ignoredTransactors *set.Set // tx sender which are temporary ignored to prevent nonce errors when a previous tx failed
 }
 
 type BlockVoting struct {
@@ -102,8 +110,9 @@ type BlockVoting struct {
 	key          *ecdsa.PrivateKey
 	voteContract *VotingContractSession
 
-	active bool
-	work   *work
+	active   bool
+	pStateMu sync.RWMutex
+	pState   *pendingState
 
 	quit chan struct{} // quit chan
 }
@@ -140,13 +149,12 @@ func NewBlockVoting(config *core.ChainConfig, db ethdb.Database, bc *core.BlockC
 		db:          db,
 		txpool:      txpool,
 		active:      true,
-		work:        new(work),
 		quit:        make(chan struct{}),
 	}
 
 	// initialize pending state
 	head := bv.blockchain.CurrentBlock()
-	bv.reset(head)
+	bv.resetPendingState(head)
 
 	return bv
 }
@@ -160,13 +168,15 @@ func deployVotingContract(db ethdb.Database) {
 		common.Bytes2Hex(crypto.Keccak256(append(common.LeftPadBytes(masterAddr[:], 32), common.LeftPadBytes([]byte{2}, 32)...))): "01",
 	}}
 	acc1 := core.GenesisAccount{masterAddr, balance, nil, nil}
-	acc2 := core.GenesisAccount{common.HexToAddress("0x740d08a357b075e4161f88574a0a56ab82ed951b"), balance, nil, nil}
+	acc2 := core.GenesisAccount{common.HexToAddress("0x536b0194e9047bff3bad882d69a10012f7edc8d2"), balance, nil, nil}
+	acc3 := core.GenesisAccount{common.HexToAddress("0x7309031074aad6d1fcf9a03fd22aab20f3066adb"), balance, nil, nil}
 
 	glog.Infof("Deploy voting contract at %s", contract.Address.Hex())
 	glog.Infof("account: %s balance: %d", acc1.Address.Hex(), acc1.Balance)
 	glog.Infof("account: %s balance: %d", acc2.Address.Hex(), acc2.Balance)
+	glog.Infof("account: %s balance: %d", acc3.Address.Hex(), acc3.Balance)
 
-	core.WriteGenesisBlockForTesting(db, contract, acc1, acc2)
+	core.WriteGenesisBlockForTesting(db, contract, acc1, acc2, acc3)
 }
 
 func (bv *BlockVoting) Attach(node *node.Node) error {
@@ -222,9 +232,9 @@ func (bv *BlockVoting) update() {
 			case downloader.DoneEvent, downloader.FailedEvent:
 				bv.active = true // syncing stopped, allow voting/block generation
 			case core.ChainHeadEvent:
-				bv.reset(e.Block) // new head, reset pending state
+				bv.resetPendingState(e.Block) // new head, reset pending state
 			case core.TxPreEvent:
-				bv.applyTransactions(bv.work, types.Transactions{e.Tx}) // tx entered tx pool, apply to pending state
+				bv.applyTransactions(types.Transactions{e.Tx}) // tx entered tx pool, apply to pending state
 			case MakeBlock:
 				bv.createBlock() // asked to generate new block
 			}
@@ -294,186 +304,135 @@ func (bv *BlockVoting) createBlock() {
 	go bv.mux.Post(core.NewMinedBlockEvent{Block: nBlock})
 }
 
-// reset current state with the given block as parent block.
-func (bv *BlockVoting) reset(parent *types.Block) {
-	//now := time.Now()
-	//tstamp := now.Unix()
-	//
-	//// timestamp of parent in future, adjust
-	//if parent.Time().Cmp(new(big.Int).SetInt64(tstamp)) >= 0 {
-	//	tstamp = parent.Time().Int64() + 1
-	//}
-	//
-	//// make sure we are not too far in the future
-	//deadline := now.Unix() + 4
-	//if tstamp > deadline {
-	//	wait := time.Duration(tstamp-deadline) * time.Second
-	//	glog.Infof("too far in the future, wait for %d second", wait.Seconds())
-	//	time.Sleep(wait)
-	//}
-	//
-	//// create new header for the pending state
-	//header := &types.Header{
-	//	ParentHash: parent.Hash(),
-	//	Number:     new(big.Int).Add(parent.Number(), common.Big1),
-	//	Difficulty: core.CalcDifficulty(bv.chainConfig, uint64(tstamp), parent.Time().Uint64(), parent.Number(), parent.Difficulty()),
-	//	GasLimit:   core.CalcGasLimit(parent),
-	//	GasUsed:    new(big.Int),
-	//	Coinbase:   crypto.PubkeyToAddress(bv.key.PublicKey),
-	//	Extra:      []byte(""),
-	//	Time:       big.NewInt(tstamp),
-	//}
-	//
-	//state, err := state.New(parent.Root(), bv.db)
-	//if err != nil {
-	//	glog.Errorf("unable to make pending state: %v", err)
-	//	return
-	//}
-	//
-	//// generate pending state
-	//w := &work{
-	//	header:             header,
-	//	state:              state,
-	//	ignoredTransactors: set.New(),
-	//}
-	//
-	//// apply transaction to pending state
-	//txs := bv.txpool.GetTransactions()
-	//types.SortByPriceAndNonce(txs)
-	//
-	//bv.applyTransactions(w, txs)
-	//
-	//header.Root = state.IntermediateRoot()
-	//bv.work = w
+// resetPendingState create a new pending state with the given block as parent.
+func (bv *BlockVoting) resetPendingState(parent *types.Block) {
+	state, err := state.New(parent.Root(), bv.db)
+	if err != nil {
+		glog.Error("unable to create new pending state: %v", err)
+		return
+	}
+
+	tstart := time.Now()
+	tstamp := tstart.Unix()
+	if parent.Time().Cmp(new(big.Int).SetInt64(tstamp)) >= 0 {
+		tstamp = parent.Time().Int64() + 1
+	}
+	// this will ensure we're not going off too far in the future
+	if now := time.Now().Unix(); tstamp > now+4 {
+		wait := time.Duration(tstamp-now) * time.Second
+		glog.V(logger.Info).Infoln("We are too far in the future. Waiting for", wait)
+		time.Sleep(wait)
+	}
+
+	header := &types.Header{
+		Number:     new(big.Int).Add(parent.Number(), common.Big1),
+		ParentHash: parent.Hash(),
+		Difficulty: core.CalcDifficulty(bv.chainConfig, uint64(tstamp), parent.Time().Uint64(), parent.Number(), parent.Difficulty()),
+		GasLimit:   core.CalcGasLimit(parent),
+		GasUsed:    new(big.Int),
+		Coinbase:   masterAddr, // TODO, replace with local account addr
+		Extra:      []byte(""), // TODO, when block is finilized sign it
+		Time:       big.NewInt(tstamp),
+	}
+
+	pState := &pendingState{
+		header:             header,
+		state:              state,
+		config:             bv.chainConfig,
+		removed:            set.New(),
+		ignoredTransactors: set.New(),
+	}
+
+	bv.pStateMu.Lock()
+	bv.pState = pState
+	bv.pStateMu.Unlock()
+
+	glog.V(logger.Detail).Infoln("pending state is reset")
 }
 
-func applyTransaction(tx *types.Transaction, bc *core.BlockChain, gp *core.GasPool) (vm.Logs, error) {
-	return nil, nil
+// applyTransaction the given transaction onto the pending state.
+func (ps *pendingState) applyTransaction(tx *types.Transaction, bc *core.BlockChain, cc *core.ChainConfig, gp *core.GasPool) (vm.Logs, error) {
+	// create recover point in case tx fails
+	snapshot := ps.state.Copy()
 
-	/*
-		func (env *Work) commitTransaction(tx *types.Transaction, bc *core.BlockChain, gp *core.GasPool) (error, vm.Logs) {
-				snap := env.state.Copy()
+	config := ps.config.VmConfig
+	if !(config.EnableJit && config.ForceJit) {
+		config.EnableJit = false
+	}
+	config.ForceJit = false // disable forcing jit
 
-				// this is a bit of a hack to force jit for the miners
-				config := env.config.VmConfig
-				if !(config.EnableJit && config.ForceJit) {
-					config.EnableJit = false
-				}
-				config.ForceJit = false // disable forcing jit
+	receipt, logs, _, err := core.ApplyTransaction(cc, bc, gp, ps.state, ps.header, tx, ps.header.GasUsed, config)
+	if err != nil {
+		ps.state.Set(snapshot) // rollback
+		return nil, err
+	}
 
-				receipt, logs, _, err := core.ApplyTransaction(env.config, bc, gp, env.state, env.header, tx, env.header.GasUsed, config)
-				if err != nil {
-					env.state.Set(snap)
-					return err, nil
-				}
-				env.txs = append(env.txs, tx)
-				env.receipts = append(env.receipts, receipt)
+	// tx successful applied to current pending state
+	ps.txs = append(ps.txs, tx)
+	ps.receipts = append(ps.receipts, receipt)
 
-				return nil, logs
-			}
-	*/
+	fmt.Printf("receipt: %v\n", receipt)
+	fmt.Printf("   logs: %v\n", logs)
+
+	return logs, nil
 }
 
-// applyTransaction executes the given transaction on the given pending state
-func (bv *BlockVoting) applyTransactions(w *work, txs types.Transactions) {
-	//gp := new(core.GasPool).AddGas(w.header.GasLimit)
-	//var receipts types.Receipts
-	//var allLogs vm.Logs
-	//
-	//for _, tx := range txs {
-	//	// Error may be ignored here. The error has already been checked
-	//	// during transaction acceptance is the transaction pool.
-	//	from, _ := tx.From()
-	//
-	//	// Move on to the next transaction when the transactor is in ignored transactions set
-	//	// This may occur when a transaction hits the gas limit. When a gas limit is hit and
-	//	// the transaction is processed (that could potentially be included in the block) it
-	//	// will throw a nonce error because the previous transaction hasn't been processed.
-	//	// Therefor we need to ignore any transaction after the ignored one.
-	//	if w.ignoredTransactors.Has(from) {
-	//		continue
-	//	}
-	//
-	//	w.state.StartRecord(tx.Hash(), common.Hash{}, 0)
-	//
-	//	// make copy of state in case transaction fails to execute
-	//	snapshot := w.state.Copy()
-	//
-	//	config := bv.chainConfig.VmConfig
-	//
-	//	receipt, logs, _, err := core.ApplyTransaction(bv.chainConfig, bv.blockchain, gp, w.state, w.header, tx, w.header.GasUsed, config)
-	//	if err != nil {
-	//		glog.Errorf("unable to execute tx %s: %v", tx.Hash(), err)
-	//		w.state = snapshot
-	//		continue
-	//	}
-	//
-	//	receipts = append(receipts, receipt)
-	//}
-	//
-	//w.receipts = append(w.receipts, receipts...)
+// applyTransaction executes the given transactions on the pending state
+func (bv *BlockVoting) applyTransactions(txs types.Transactions) {
+	bv.pStateMu.Lock()
+	defer bv.pStateMu.Unlock()
 
-	/*
-		func (env *Work) commitTransactions(mux *event.TypeMux, transactions types.Transactions, gasPrice *big.Int, bc *core.BlockChain) {
-			gp := new(core.GasPool).AddGas(env.header.GasLimit)
+	gp := new(core.GasPool).AddGas(bv.pState.header.GasLimit)
 
-			var coalescedLogs vm.Logs
-			for _, tx := range transactions {
+	var coalescedLogs vm.Logs
 
-				env.state.StartRecord(tx.Hash(), common.Hash{}, 0)
+	// shortcut
+	pState := bv.pState
+	nTx := 0
 
-				err, logs := env.commitTransaction(tx, bc, gp)
-				switch {
-				case core.IsGasLimitErr(err):
-					// ignore the transactor so no nonce errors will be thrown for this account
-					// next time the worker is run, they'll be picked up again.
-					env.ignoredTransactors.Add(from)
+	for _, tx := range txs {
+		from, _ := tx.From()
 
-					glog.V(logger.Detail).Infof("Gas limit reached for (%x) in this block. Continue to try smaller txs\n", from[:4])
-				case err != nil:
-					env.remove.Add(tx.Hash())
+		// no gas price check, allow transaction with gas price of 0
 
-					if glog.V(logger.Detail) {
-						glog.Infof("TX (%x) failed, will be removed: %v\n", tx.Hash().Bytes()[:4], err)
-					}
-				default:
-					env.tcount++
-					coalescedLogs = append(coalescedLogs, logs...)
-				}
-			}
-			if len(coalescedLogs) > 0 || env.tcount > 0 {
-				go func(logs vm.Logs, tcount int) {
-					if len(logs) > 0 {
-						mux.Post(core.PendingLogsEvent{Logs: logs})
-					}
-					if tcount > 0 {
-						mux.Post(core.PendingStateEvent{})
-					}
-				}(coalescedLogs, env.tcount)
-			}
+		// Move on to the next transaction when the transactor is in ignored transactions set
+		// This may occur when a transaction hits the gas limit. When a gas limit is hit and
+		// the transaction is processed (that could potentially be included in the block) it
+		// will throw a nonce error because the previous transaction hasn't been processed.
+		// Therefor we need to ignore any transaction after the ignored one.
+		if pState.ignoredTransactors.Has(from) {
+			continue
 		}
 
-		func (env *Work) commitTransaction(tx *types.Transaction, bc *core.BlockChain, gp *core.GasPool) (error, vm.Logs) {
-			snap := env.state.Copy()
+		pState.state.StartRecord(tx.Hash(), common.Hash{}, 0)
 
-			// this is a bit of a hack to force jit for the miners
-			config := env.config.VmConfig
-			if !(config.EnableJit && config.ForceJit) {
-				config.EnableJit = false
-			}
-			config.ForceJit = false // disable forcing jit
-
-			receipt, logs, _, err := core.ApplyTransaction(env.config, bc, gp, env.state, env.header, tx, env.header.GasUsed, config)
-			if err != nil {
-				env.state.Set(snap)
-				return err, nil
-			}
-			env.txs = append(env.txs, tx)
-			env.receipts = append(env.receipts, receipt)
-
-			return nil, logs
+		logs, err := pState.applyTransaction(tx, bv.blockchain, bv.chainConfig, gp)
+		switch {
+		case core.IsGasLimitErr(err):
+			// ignore the transactor so no nonce errors will be thrown for this account
+			// when the pending state is reset (new/import block) it will be picked up again
+			pState.ignoredTransactors.Add(from)
+			glog.V(logger.Detail).Infof("Gas limit reached for (%x) in this block. Continue to try smaller txs\n", from[:4])
+		case err == nil:
+			coalescedLogs = append(coalescedLogs, logs...)
+			nTx++
+		default: // some error occured on execution, remove tx
+			pState.removed.Add(tx.Hash)
+			glog.V(logger.Detail).Infof("TX (%x) failed, will be removed: %v\n", tx.Hash().Bytes()[:4], err)
 		}
-	*/
+	}
+
+	// post pending state events if there where some txs succesful executed
+	if len(coalescedLogs) > 0 || nTx > 0 {
+		go func(logs vm.Logs, tCount int) {
+			if len(logs) > 0 {
+				bv.mux.Post(core.PendingLogsEvent{logs})
+			}
+			if tCount > 0 {
+				bv.mux.Post(core.PendingStateEvent{})
+			}
+		}(coalescedLogs, nTx)
+	}
 }
 
 func (bv *BlockVoting) createHeader(parent *types.Block) (*types.Block, *types.Header) {
@@ -506,7 +465,6 @@ func (bv *BlockVoting) Create(parent *types.Block, txs types.Transactions) (*typ
 	var allLogs vm.Logs
 
 	for i, tx := range txs {
-		fmt.Printf(">> %s\n", gp)
 		snap := statedb.Copy()
 		receipt, logs, _, err := core.ApplyTransaction(bv.chainConfig, bv.blockchain, gp, statedb, header, tx, header.GasUsed, bv.chainConfig.VmConfig)
 		if err != nil {
@@ -523,8 +481,6 @@ func (bv *BlockVoting) Create(parent *types.Block, txs types.Transactions) (*typ
 
 		receipts = append(receipts, receipt)
 		allLogs = append(allLogs, logs...)
-
-		fmt.Printf("<< %s\n", gp)
 	}
 
 	core.AccumulateRewards(statedb, header, nil)
@@ -583,9 +539,15 @@ func (bv *BlockVoting) Verify(block pow.Block) bool {
 // Pending returns block and state for the head of the canonical chain.
 // For BlockVoting there is no pending state.
 func (bv *BlockVoting) Pending() (*types.Block, *state.StateDB) {
-	block := bv.blockchain.CurrentBlock()
-	s, _ := state.New(block.Root(), bv.db)
-	return block, s
+	bv.pStateMu.RLock()
+	defer bv.pStateMu.RUnlock()
+
+	return types.NewBlock(
+		bv.pState.header,
+		bv.pState.txs,
+		nil,
+		bv.pState.receipts,
+	), bv.pState.state
 }
 
 func findDecendant(hash common.Hash, blockchain *core.BlockChain) *types.Block {
