@@ -36,7 +36,7 @@ contract BlockVoting {
 		if( canVote[msg.sender] ) {
 		    _
 		} else {
-		    InvalidSenderVote(msg.sender, block.number-1);
+		    //InvalidSenderVote(msg.sender, block.number-1);
 		}
 	}
 
@@ -62,7 +62,7 @@ contract BlockVoting {
 		period.entries[hash]++;
 
 		// log vote
-		Vote(msg.sender, block.number-1, hash);
+		//Vote(msg.sender, block.number-1, hash);
 	}
 
     // Get the "winning" block hash of the previous voting round.

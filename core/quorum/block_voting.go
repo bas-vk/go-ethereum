@@ -3,7 +3,6 @@ package quorum
 import (
 	"crypto/ecdsa"
 	"errors"
-	"fmt"
 	"math/big"
 	"strings"
 	"sync"
@@ -30,7 +29,7 @@ import (
 )
 
 const definition = `[{"constant":false,"inputs":[{"name":"addr","type":"address"}],"name":"removeVoter","outputs":[],"type":"function"},{"constant":true,"inputs":[{"name":"p","type":"uint256"},{"name":"n","type":"uint256"}],"name":"getEntry","outputs":[{"name":"","type":"bytes32"}],"type":"function"},{"constant":false,"inputs":[{"name":"hash","type":"bytes32"}],"name":"vote","outputs":[],"type":"function"},{"constant":true,"inputs":[{"name":"","type":"address"}],"name":"canVote","outputs":[{"name":"","type":"bool"}],"type":"function"},{"constant":true,"inputs":[],"name":"getSize","outputs":[{"name":"","type":"uint256"}],"type":"function"},{"constant":false,"inputs":[{"name":"addr","type":"address"}],"name":"addVoter","outputs":[],"type":"function"},{"constant":true,"inputs":[],"name":"getCanonHash","outputs":[{"name":"","type":"bytes32"}],"type":"function"},{"inputs":[],"type":"constructor"}]`
-const DeployCode = `6060604052361561008a576000357c01000000000000000000000000000000000000000000000000000000009004806342169e481461008c57806386c1ff68146100af57806398ba676d146100c7578063a69beaba14610100578063adfaa72e14610118578063de8fa43114610146578063f4ab9adf14610169578063f8d11a57146101815761008a565b005b61009960048050506101a8565b6040518082815260200191505060405180910390f35b6100c560048080359060200190919050506101b1565b005b6100e660048080359060200190919080359060200190919050506102b6565b604051808260001916815260200191505060405180910390f35b610116600480803590602001909190505061030c565b005b61012e60048080359060200190919050506105ac565b60405180821515815260200191505060405180910390f35b61015360048050506105d1565b6040518082815260200191505060405180910390f35b61017f60048080359060200190919050506105e6565b005b61018e60048050506106de565b604051808260001916815260200191505060405180910390f35b60016000505481565b600260005060003373ffffffffffffffffffffffffffffffffffffffff16815260200190815260200160002060009054906101000a900460ff1615610259576001600160005054141561020357610002565b600260005060008273ffffffffffffffffffffffffffffffffffffffff16815260200190815260200160002060006101000a81549060ff02191690556001600081815054809291906001900391905055506102b2565b7f054bb91f2e6a3ea70c2704666a0b9c440fcdd463a0fceccb4ae7b21222232c6b3360014303604051808373ffffffffffffffffffffffffffffffffffffffff1681526020018281526020019250505060405180910390a15b5b50565b60006000600060005084815481101561000257906000526020600020906002020160005b5090508060010160005083815481101561000257906000526020600020900160005b50549150610305565b5092915050565b6000600260005060003373ffffffffffffffffffffffffffffffffffffffff16815260200190815260200160002060009054906101000a900460ff161561054e574360006000508054905010156103f9576000600050805480919060010190908154818355818115116103f4576002028160020283600052602060002091820191016103f39190610398565b808211156103ef57600060018201600050805460008255906000526020600020908101906103e491906103c6565b808211156103e057600081815060009055506001016103c6565b5090565b5b5050600201610398565b5090565b5b505050505b600060005060014303815481101561000257906000526020600020906002020160005b5090506000816000016000506000846000191681526020019081526020016000206000505414156104b75780600101600050805480600101828181548183558181151161049b5781836000526020600020918201910161049a919061047c565b80821115610496576000818150600090555060010161047c565b5090565b5b5050509190906000526020600020900160005b84909190915055505b806000016000506000836000191681526020019081526020016000206000818150548092919060010191905055507f3d03ba7f4b5227cdb385f2610906e5bcee147171603ec40005b30915ad20e258336001430384604051808473ffffffffffffffffffffffffffffffffffffffff16815260200183815260200182600019168152602001935050505060405180910390a16105a7565b7f054bb91f2e6a3ea70c2704666a0b9c440fcdd463a0fceccb4ae7b21222232c6b3360014303604051808373ffffffffffffffffffffffffffffffffffffffff1681526020018281526020019250505060405180910390a15b5b5050565b600260005060205280600052604060002060009150909054906101000a900460ff1681565b600060006000508054905090506105e3565b90565b600260005060003373ffffffffffffffffffffffffffffffffffffffff16815260200190815260200160002060009054906101000a900460ff1615610681576001600260005060008373ffffffffffffffffffffffffffffffffffffffff16815260200190815260200160002060006101000a81548160ff0219169083021790555060016000818150548092919060010191905055506106da565b7f054bb91f2e6a3ea70c2704666a0b9c440fcdd463a0fceccb4ae7b21222232c6b3360014303604051808373ffffffffffffffffffffffffffffffffffffffff1681526020018281526020019250505060405180910390a15b5b50565b60006000600060006000600050600160006000508054905003815481101561000257906000526020600020906002020160005b509250600090505b82600101600050805490508110156107c5578260000160005060008460010160005083815481101561000257906000526020600020900160005b505460001916815260200190815260200160002060005054836000016000506000846000191681526020019081526020016000206000505410156107b7578260010160005081815481101561000257906000526020600020900160005b5054915081505b5b8080600101915050610719565b8193506107cd565b5050509056`
+const DeployCode = `6060604052361561008a576000357c01000000000000000000000000000000000000000000000000000000009004806342169e481461008c57806386c1ff68146100af57806398ba676d146100c7578063a69beaba14610100578063adfaa72e14610118578063de8fa43114610146578063f4ab9adf14610169578063f8d11a57146101815761008a565b005b61009960048050506101a8565b6040518082815260200191505060405180910390f35b6100c560048080359060200190919050506101b1565b005b6100e6600480803590602001909190803590602001909190505061025e565b604051808260001916815260200191505060405180910390f35b61011660048080359060200190919050506102b4565b005b61012e6004808035906020019091905050610498565b60405180821515815260200191505060405180910390f35b61015360048050506104bd565b6040518082815260200191505060405180910390f35b61017f60048080359060200190919050506104d2565b005b61018e6004805050610572565b604051808260001916815260200191505060405180910390f35b60016000505481565b600260005060003373ffffffffffffffffffffffffffffffffffffffff16815260200190815260200160002060009054906101000a900460ff1615610259576001600160005054141561020357610002565b600260005060008273ffffffffffffffffffffffffffffffffffffffff16815260200190815260200160002060006101000a81549060ff021916905560016000818150548092919060019003919050555061025a565b5b5b50565b60006000600060005084815481101561000257906000526020600020906002020160005b5090508060010160005083815481101561000257906000526020600020900160005b505491506102ad565b5092915050565b6000600260005060003373ffffffffffffffffffffffffffffffffffffffff16815260200190815260200160002060009054906101000a900460ff1615610492574360006000508054905010156103a15760006000508054809190600101909081548183558181151161039c5760020281600202836000526020600020918201910161039b9190610340565b80821115610397576000600182016000508054600082559060005260206000209081019061038c919061036e565b80821115610388576000818150600090555060010161036e565b5090565b5b5050600201610340565b5090565b5b505050505b600060005060014303815481101561000257906000526020600020906002020160005b50905060008160000160005060008460001916815260200190815260200160002060005054141561045f57806001016000508054806001018281815481835581811511610443578183600052602060002091820191016104429190610424565b8082111561043e5760008181506000905550600101610424565b5090565b5b5050509190906000526020600020900160005b84909190915055505b80600001600050600083600019168152602001908152602001600020600081815054809291906001019190505550610493565b5b5b5050565b600260005060205280600052604060002060009150909054906101000a900460ff1681565b600060006000508054905090506104cf565b90565b600260005060003373ffffffffffffffffffffffffffffffffffffffff16815260200190815260200160002060009054906101000a900460ff161561056d576001600260005060008373ffffffffffffffffffffffffffffffffffffffff16815260200190815260200160002060006101000a81548160ff02191690830217905550600160008181505480929190600101919050555061056e565b5b5b50565b60006000600060006000600050600160006000508054905003815481101561000257906000526020600020906002020160005b509250600090505b8260010160005080549050811015610659578260000160005060008460010160005083815481101561000257906000526020600020900160005b5054600019168152602001908152602001600020600050548360000160005060008460001916815260200190815260200160002060005054101561064b578260010160005081815481101561000257906000526020600020900160005b5054915081505b5b80806001019150506105ad565b819350610661565b5050509056`
 
 var (
 	contractAddress = common.HexToAddress("0x0000000000000000000000000000000000000020")
@@ -162,16 +161,22 @@ func NewBlockVoting(config *core.ChainConfig, db ethdb.Database, bc *core.BlockC
 // DeployVotingContract writes the genesis block with the voting contract included.
 func deployVotingContract(db ethdb.Database) {
 	balance, _ := new(big.Int).SetString("0xffffffffffffffffffffffff", 0)
+	acc1 := core.GenesisAccount{masterAddr, balance, nil, nil}
+	acc2 := core.GenesisAccount{common.HexToAddress("0x1a8c2e42da9ec8eabf77c545ad75a54aef78198d"), balance, nil, nil}
+	acc3 := core.GenesisAccount{common.HexToAddress("0x9d56e04cb0da97e0f14de40234f2522f37b19081"), balance, nil, nil}
+
 	contract := core.GenesisAccount{contractAddress, new(big.Int), common.FromHex(DeployCode), map[string]string{
 		"0000000000000000000000000000000000000000000000000000000000000001": "01",
 		// add addr1 as a voter
 		common.Bytes2Hex(crypto.Keccak256(append(common.LeftPadBytes(masterAddr[:], 32), common.LeftPadBytes([]byte{2}, 32)...))): "01",
+		// add acc2 as voter
+		common.Bytes2Hex(crypto.Keccak256(append(common.LeftPadBytes(acc2.Address[:], 32), common.LeftPadBytes([]byte{2}, 32)...))): "01",
+		// add acc3 as voter
+		common.Bytes2Hex(crypto.Keccak256(append(common.LeftPadBytes(acc3.Address[:], 32), common.LeftPadBytes([]byte{2}, 32)...))): "01",
 	}}
-	acc1 := core.GenesisAccount{masterAddr, balance, nil, nil}
-	acc2 := core.GenesisAccount{common.HexToAddress("0x536b0194e9047bff3bad882d69a10012f7edc8d2"), balance, nil, nil}
-	acc3 := core.GenesisAccount{common.HexToAddress("0x7309031074aad6d1fcf9a03fd22aab20f3066adb"), balance, nil, nil}
 
 	glog.Infof("Deploy voting contract at %s", contract.Address.Hex())
+	glog.Infof("Master addr: %s\n", masterAddr.Hex())
 	glog.Infof("account: %s balance: %d", acc1.Address.Hex(), acc1.Balance)
 	glog.Infof("account: %s balance: %d", acc2.Address.Hex(), acc2.Balance)
 	glog.Infof("account: %s balance: %d", acc3.Address.Hex(), acc3.Balance)
@@ -189,6 +194,8 @@ func (bv *BlockVoting) Attach(node *node.Node) error {
 	if err != nil {
 		return err
 	}
+
+	glog.Infof("voting contract tx from: %s\n", crypto.PubkeyToAddress(bv.key.PublicKey).Hex())
 
 	txOpts := bind.NewKeyedTransactor(bv.key)
 	txOpts.GasLimit = big.NewInt(250000)
@@ -258,7 +265,7 @@ func (bv *BlockVoting) createBlock() {
 		return
 	}
 
-	// 1. lookup canon hash
+	// 1. lookup canon hash from contract, if this fails use the local chain head as canon hash.
 	ch, err := bv.CanonHash()
 	if err != nil {
 		glog.Errorf("unable to retrieve canonical hash: %v", err)
@@ -282,7 +289,7 @@ func (bv *BlockVoting) createBlock() {
 	}
 
 	// 3. block found, create new block on top of that
-	glog.V(logger.Debug).Infof("block %s found, base new block on top of that", cBlock.Hash().Hex())
+	glog.V(logger.Debug).Infof("base new block on top of %s", cBlock.Hash().Hex())
 
 	transactions := bv.txpool.GetTransactions()
 	types.SortByPriceAndNonce(transactions)
@@ -293,7 +300,7 @@ func (bv *BlockVoting) createBlock() {
 		return
 	}
 
-	// 4. insert into chain
+	// 4. insert into chain, do full validation
 	if _, err := bv.blockchain.InsertChain(types.Blocks{nBlock}); err != nil {
 		glog.Errorf("unable to insert new block: %v", err)
 		return
@@ -371,9 +378,6 @@ func (ps *pendingState) applyTransaction(tx *types.Transaction, bc *core.BlockCh
 	ps.txs = append(ps.txs, tx)
 	ps.receipts = append(ps.receipts, receipt)
 
-	fmt.Printf("receipt: %v\n", receipt)
-	fmt.Printf("   logs: %v\n", logs)
-
 	return logs, nil
 }
 
@@ -444,7 +448,7 @@ func (bv *BlockVoting) createHeader(parent *types.Block) (*types.Block, *types.H
 	return parent, &types.Header{
 		ParentHash: parent.Hash(),
 		Number:     new(big.Int).Add(parent.Number(), common.Big1),
-		Difficulty: core.CalcDifficulty(bv.chainConfig, uint64(tstamp), parent.Time().Uint64(), parent.Number(), parent.Difficulty()),
+		Difficulty: core.CalcDifficulty(bv.chainConfig, uint64(tstamp), parent.Time().Uint64(), parent.Number(), parent.Difficulty()), /* TODO, remove difficulty */
 		GasLimit:   core.CalcGasLimit(parent),
 		GasUsed:    new(big.Int),
 		Time:       big.NewInt(tstamp),
@@ -464,29 +468,33 @@ func (bv *BlockVoting) Create(parent *types.Block, txs types.Transactions) (*typ
 	var receipts types.Receipts
 	var allLogs vm.Logs
 
-	for i, tx := range txs {
-		snap := statedb.Copy()
-		receipt, logs, _, err := core.ApplyTransaction(bv.chainConfig, bv.blockchain, gp, statedb, header, tx, header.GasUsed, bv.chainConfig.VmConfig)
-		if err != nil {
-			switch {
-			case core.IsGasLimitErr(err):
-				glog.Infof("Gas limit reached for (%s) in this block. Continue to try smaller txs\n", tx.Hash().Hex())
-			default:
-				glog.Infof("TX (%x) failed, will be removed: %v\n", tx.Hash().Bytes()[:4], err)
-			}
-			statedb.Set(snap) // rollback state to state after last successful tx
-			txs = txs[:i]     // successful included tx
-			break
-		}
+	var includedTxs types.Transactions
 
-		receipts = append(receipts, receipt)
-		allLogs = append(allLogs, logs...)
+	for i, tx := range txs {
+		checkpoint := statedb.Copy() // create checkpoint for rollback in case tx fails
+		statedb.StartRecord(tx.Hash(), common.Hash{}, i)
+		receipt, logs, _, err := core.ApplyTransaction(bv.chainConfig, bv.blockchain, gp, statedb, header, tx, header.GasUsed, bv.chainConfig.VmConfig)
+
+		switch {
+		case err == nil:
+			glog.V(logger.Debug).Infof("tx %s applied", tx.Hash().Hex())
+			includedTxs = append(includedTxs, tx)
+			receipts = append(receipts, receipt)
+			allLogs = append(allLogs, logs...)
+		case core.IsGasLimitErr(err):
+			glog.Infof("Gas limit reached for (%s) in this block. Continue to try smaller txs\n", tx.Hash().Hex())
+			statedb.Set(checkpoint) // rollback state to state before failed tx
+		default:
+			glog.Infof("TX (%x) failed, will be removed: %v\n", tx.Hash().Bytes()[:4], err)
+			bv.txpool.RemoveTransactions(types.Transactions{tx})
+			statedb.Set(checkpoint) // rollback state to state before failed tx
+		}
 	}
 
-	core.AccumulateRewards(statedb, header, nil)
-	header.Root = statedb.IntermediateRoot()
+	core.AccumulateRewards(statedb, header, nil) // TODO, maybe we should remove this and use a gasprice and static tx fee of 0
+	header.Root, _ = statedb.Commit()
 
-	// update block hash since it is now available and not when the receipt/log of individual transactions were created
+	// update block hash in receipts and logs now it is available
 	for _, r := range receipts {
 		for _, l := range r.Logs {
 			l.BlockHash = header.Hash()
@@ -497,7 +505,9 @@ func (bv *BlockVoting) Create(parent *types.Block, txs types.Transactions) (*typ
 	}
 
 	header.Bloom = types.CreateBloom(receipts)
-	return types.NewBlock(header, txs, nil, receipts), statedb, receipts, allLogs, nil
+
+	// no uncles for consoritium chain
+	return types.NewBlock(header, includedTxs, nil, receipts), statedb, receipts, allLogs, nil
 }
 
 // CanonHash returns the hash of the latest block within the canonical chain.
