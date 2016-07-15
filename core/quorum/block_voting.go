@@ -4,6 +4,7 @@ import (
 	"crypto/ecdsa"
 	"errors"
 	"math/big"
+	"math/rand"
 	"strings"
 	"sync"
 	"time"
@@ -212,8 +213,6 @@ func (bv *BlockVoting) Attach(node *node.Node) error {
 	return nil
 }
 
-const blockTime = 30 * time.Second
-
 func (bv *BlockVoting) update() {
 	eventSub := bv.mux.Subscribe(
 		downloader.StartEvent{},
@@ -226,6 +225,7 @@ func (bv *BlockVoting) update() {
 
 	defer eventSub.Unsubscribe()
 
+	ticker := time.After(time.Duration(10+rand.Intn(11)) * time.Second)
 	for {
 		select {
 		case event, ok := <-eventSub.Chan():
@@ -240,11 +240,16 @@ func (bv *BlockVoting) update() {
 				bv.active = true // syncing stopped, allow voting/block generation
 			case core.ChainHeadEvent:
 				bv.resetPendingState(e.Block) // new head, reset pending state
+				ticker = time.After(time.Duration(10+rand.Intn(11)) * time.Second)
 			case core.TxPreEvent:
 				bv.applyTransactions(types.Transactions{e.Tx}) // tx entered tx pool, apply to pending state
 			case MakeBlock:
 				bv.createBlock() // asked to generate new block
+				ticker = time.After(time.Duration(10+rand.Intn(11)) * time.Second)
 			}
+		case <-ticker:
+			bv.createBlock() // asked to generate new block
+			ticker = time.After(time.Duration(10+rand.Intn(11)) * time.Second)
 		case <-bv.quit:
 			return
 		}
