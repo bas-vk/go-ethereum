@@ -163,8 +163,8 @@ func NewBlockVoting(config *core.ChainConfig, db ethdb.Database, bc *core.BlockC
 func deployVotingContract(db ethdb.Database) {
 	balance, _ := new(big.Int).SetString("0xffffffffffffffffffffffff", 0)
 	acc1 := core.GenesisAccount{masterAddr, balance, nil, nil}
-	acc2 := core.GenesisAccount{common.HexToAddress("0x1a8c2e42da9ec8eabf77c545ad75a54aef78198d"), balance, nil, nil}
-	acc3 := core.GenesisAccount{common.HexToAddress("0x9d56e04cb0da97e0f14de40234f2522f37b19081"), balance, nil, nil}
+	acc2 := core.GenesisAccount{common.HexToAddress("0x391694e7e0b0cce554cb130d723a9d27458f9298"), balance, nil, nil}
+	acc3 := core.GenesisAccount{common.HexToAddress("0xafa3f8684e54059998bc3a7b0d2b0da075154d66"), balance, nil, nil}
 
 	contract := core.GenesisAccount{contractAddress, new(big.Int), common.FromHex(DeployCode), map[string]string{
 		"0000000000000000000000000000000000000000000000000000000000000001": "01",
@@ -275,6 +275,8 @@ func (bv *BlockVoting) createBlock() {
 	if err != nil {
 		glog.Errorf("unable to retrieve canonical hash: %v", err)
 		ch = bv.blockchain.CurrentBlock().Hash()
+	} else {
+		glog.Errorln("found canonical hash")
 	}
 
 	// 2. if canonical hash is not within database vote for local chain head and return

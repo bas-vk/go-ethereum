@@ -10,7 +10,7 @@ contract BlockVoting {
     event InvalidSenderVote(address sender, uint blockNumber);
 
     // Raised when a vote is made
-    event Vote(address sender, uint blockNumber, bytes32 blockHash);
+    event Vote(address indexed sender, uint blockNumber, bytes32 blockHash);
 
     // The period in which voters can vote for a block that is selected
     // as the new head of the chain.
@@ -36,7 +36,7 @@ contract BlockVoting {
 		if( canVote[msg.sender] ) {
 		    _
 		} else {
-		    //InvalidSenderVote(msg.sender, block.number-1);
+		    InvalidSenderVote(msg.sender, block.number-1);
 		}
 	}
 
@@ -50,7 +50,9 @@ contract BlockVoting {
     // vote.
 	function vote(bytes32 hash) mustBeVoter {
 	    // start new period if this is the first transaction in the new block.
-		if( periods.length < block.number ) periods.length++;
+		for( ;periods.length < block.number; ) {
+		    periods.length++;
+		}
 
 		// select the previous voting round.
 		Period period = periods[block.number-1];
@@ -62,7 +64,7 @@ contract BlockVoting {
 		period.entries[hash]++;
 
 		// log vote
-		//Vote(msg.sender, block.number-1, hash);
+		Vote(msg.sender, block.number-1, hash);
 	}
 
     // Get the "winning" block hash of the previous voting round.
