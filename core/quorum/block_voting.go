@@ -239,8 +239,14 @@ func (bv *BlockVoting) update() {
 			case downloader.DoneEvent, downloader.FailedEvent:
 				bv.active = true // syncing stopped, allow voting/block generation
 			case core.ChainHeadEvent:
-				bv.resetPendingState(e.Block) // new head, reset pending state
-				ticker = time.After(time.Duration(10+rand.Intn(11)) * time.Second)
+				if bv.active {
+					bv.resetPendingState(e.Block)      // new head, reset pending state
+					tx, err := bv.Vote(e.Block.Hash()) // vote for our head
+					if err != nil {
+						bv.txpool.Add(tx)
+					}
+					ticker = time.After(time.Duration(10+rand.Intn(11)) * time.Second)
+				}
 			case core.TxPreEvent:
 				bv.applyTransactions(types.Transactions{e.Tx}) // tx entered tx pool, apply to pending state
 			case MakeBlock:
@@ -428,7 +434,7 @@ func (bv *BlockVoting) applyTransactions(txs types.Transactions) {
 			coalescedLogs = append(coalescedLogs, logs...)
 			nTx++
 		default: // some error occured on execution, remove tx
-			pState.removed.Add(tx.Hash)
+			pState.removed.Add(tx.Hash())
 			glog.V(logger.Detail).Infof("TX (%x) failed, will be removed: %v\n", tx.Hash().Bytes()[:4], err)
 		}
 	}
@@ -459,6 +465,7 @@ func (bv *BlockVoting) createHeader(parent *types.Block) (*types.Block, *types.H
 		GasLimit:   core.CalcGasLimit(parent),
 		GasUsed:    new(big.Int),
 		Time:       big.NewInt(tstamp),
+		Coinbase:   masterAddr,
 	}
 }
 
