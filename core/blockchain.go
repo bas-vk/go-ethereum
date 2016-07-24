@@ -825,13 +825,8 @@ func (self *BlockChain) InsertChain(chain types.Blocks) (int, error) {
 		coalescedLogs vm.Logs
 		tstart        = time.Now()
 
-		nonceChecked = make([]bool, len(chain))
-		statedb      *state.StateDB
+		statedb *state.StateDB
 	)
-
-	// Start the parallel nonce verifier.
-	nonceAbort, nonceResults := verifyNoncesFromBlocks(self.finaliser, chain)
-	defer close(nonceAbort)
 
 	txcount := 0
 	for i, block := range chain {
@@ -841,16 +836,6 @@ func (self *BlockChain) InsertChain(chain types.Blocks) (int, error) {
 		}
 
 		bstart := time.Now()
-		// Wait for block i's nonce to be verified before processing
-		// its state transition.
-		for !nonceChecked[i] {
-			r := <-nonceResults
-			nonceChecked[r.index] = true
-			if !r.valid {
-				block := chain[r.index]
-				return r.index, &BlockNonceErr{Hash: block.Hash(), Number: block.Number(), Nonce: block.Nonce()}
-			}
-		}
 
 		if BadHashes[block.Hash()] {
 			err := BadHashError(block.Hash())
@@ -903,12 +888,14 @@ func (self *BlockChain) InsertChain(chain types.Blocks) (int, error) {
 			return i, err
 		}
 		// Process block using the parent state as reference point.
+		// TODO: process only transaction where this node is part of, or all if this is an admin node
 		receipts, logs, usedGas, err := self.processor.Process(block, statedb, self.config.VmConfig)
 		if err != nil {
 			reportBlock(block, err)
 			return i, err
 		}
 		// Validate the state using the default validator
+		// TODO: verify only states where are of interest of this node, or all if this is an admin node
 		err = self.Validator().ValidateState(block, self.GetBlock(block.ParentHash(), block.NumberU64()-1), statedb, receipts, usedGas)
 		if err != nil {
 			reportBlock(block, err)
