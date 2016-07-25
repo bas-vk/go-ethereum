@@ -241,9 +241,9 @@ func (bv *BlockVoting) update() {
 				bv.active = true // syncing stopped, allow voting/block generation
 			case core.ChainHeadEvent:
 				if bv.active {
-					bv.resetPendingState(e.Block)      // new head, reset pending state
-					tx, err := bv.Vote(e.Block.Hash()) // vote for our head
-					if err != nil {
+					bv.resetPendingState(e.Block)                       // new head, reset pending state
+					if tx, err := bv.Vote(e.Block.Hash()); err == nil { // vote for our head
+						fmt.Printf("vote for block: %s\n", e.Block.Hash().Hex())
 						bv.txpool.Add(tx)
 					}
 					ticker = time.After(time.Duration(10+rand.Intn(11)) * time.Second)
@@ -255,7 +255,7 @@ func (bv *BlockVoting) update() {
 				ticker = time.After(time.Duration(10+rand.Intn(11)) * time.Second)
 			}
 		case <-ticker:
-			bv.createBlock() // asked to generate new block
+			//TEMPORARY bv.createBlock() // asked to generate new block
 			ticker = time.After(time.Duration(10+rand.Intn(11)) * time.Second)
 		case <-bv.quit:
 			return
@@ -291,14 +291,6 @@ func (bv *BlockVoting) createBlock() {
 	if cBlock == nil {
 		glog.V(logger.Debug).Infof("canonical hash %s not in db, vote for chain head", ch.Hex())
 		cBlock = bv.blockchain.CurrentBlock()
-		voteTx, err := bv.Vote(cBlock.Hash())
-		if err != nil {
-			glog.Errorf("unable to vote for %s: %v", cBlock.Hash().Hex(), err)
-			return
-		}
-		if err := bv.txpool.Add(voteTx); err != nil {
-			glog.Errorf("unable to vote for %s: %v", cBlock.Hash().Hex(), err)
-		}
 		return
 	}
 
@@ -478,8 +470,6 @@ func (bv *BlockVoting) Create(parent *types.Block, txs types.Transactions) (*typ
 
 	parent, header := bv.createHeader(parent)
 
-	fmt.Printf("parent blocknumbeR: %s/%d, new %d\n", parent.Hash().Hex(), parent.Number(), header.Number)
-
 	gp := new(core.GasPool).AddGas(header.GasLimit)
 	statedb, _ := state.New(parent.Root(), bv.db)
 	var receipts types.Receipts
@@ -490,7 +480,12 @@ func (bv *BlockVoting) Create(parent *types.Block, txs types.Transactions) (*typ
 	for i, tx := range txs {
 		checkpoint := statedb.Copy() // create checkpoint for rollback in case tx fails
 		statedb.StartRecord(tx.Hash(), common.Hash{}, i)
+		addr, _ := tx.From()
+		before := statedb.GetNonce(addr)
 		receipt, logs, _, err := core.ApplyTransaction(bv.chainConfig, bv.blockchain, gp, statedb, header, tx, header.GasUsed, bv.chainConfig.VmConfig)
+		after := statedb.GetNonce(addr)
+
+		fmt.Printf("tx nonce: %d, nonce before: %d, nonce after: %d\n", tx.Nonce(), before, after)
 
 		switch {
 		case err == nil:
