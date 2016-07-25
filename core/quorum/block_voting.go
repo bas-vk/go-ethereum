@@ -3,7 +3,6 @@ package quorum
 import (
 	"crypto/ecdsa"
 	"errors"
-	"fmt"
 	"math/big"
 	"math/rand"
 	"strings"
@@ -206,6 +205,7 @@ func (bv *BlockVoting) Attach(node *node.Node) error {
 
 	bv.voteContract = &VotingContractSession{
 		Contract:     contract,
+		CallOpts:     bind.CallOpts{Pending: true},
 		TransactOpts: *txOpts,
 	}
 
@@ -243,7 +243,6 @@ func (bv *BlockVoting) update() {
 				if bv.active {
 					bv.resetPendingState(e.Block)                       // new head, reset pending state
 					if tx, err := bv.Vote(e.Block.Hash()); err == nil { // vote for our head
-						fmt.Printf("vote for block: %s\n", e.Block.Hash().Hex())
 						bv.txpool.Add(tx)
 					}
 					ticker = time.After(time.Duration(10+rand.Intn(11)) * time.Second)
@@ -283,7 +282,7 @@ func (bv *BlockVoting) createBlock() {
 		glog.Errorf("unable to retrieve canonical hash: %v", err)
 		ch = bv.blockchain.CurrentBlock().Hash()
 	} else {
-		glog.Errorln("found canonical hash")
+		glog.V(logger.Debug).Infof("found canonical hash: %s", ch.Hex())
 	}
 
 	// 2. if canonical hash is not within database vote for local chain head and return
@@ -480,12 +479,7 @@ func (bv *BlockVoting) Create(parent *types.Block, txs types.Transactions) (*typ
 	for i, tx := range txs {
 		checkpoint := statedb.Copy() // create checkpoint for rollback in case tx fails
 		statedb.StartRecord(tx.Hash(), common.Hash{}, i)
-		addr, _ := tx.From()
-		before := statedb.GetNonce(addr)
 		receipt, logs, _, err := core.ApplyTransaction(bv.chainConfig, bv.blockchain, gp, statedb, header, tx, header.GasUsed, bv.chainConfig.VmConfig)
-		after := statedb.GetNonce(addr)
-
-		fmt.Printf("tx nonce: %d, nonce before: %d, nonce after: %d\n", tx.Nonce(), before, after)
 
 		switch {
 		case err == nil:
