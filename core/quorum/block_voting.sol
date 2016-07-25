@@ -64,7 +64,7 @@ contract BlockVoting {
 		period.entries[hash]++;
 
 		// log vote
-		Vote(msg.sender, block.number-1, hash);
+		Vote(msg.sender, block.number, hash);
 	}
 
     // Get the "winning" block hash of the previous voting round.
