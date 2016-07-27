@@ -110,26 +110,30 @@ func (v *BlockValidator) ValidateBlock(block *types.Block) error {
 // itself. ValidateState returns a database batch if the validation was a success
 // otherwise nil and an error is returned.
 func (v *BlockValidator) ValidateState(block, parent *types.Block, statedb *state.StateDB, receipts types.Receipts, usedGas *big.Int) (err error) {
-	header := block.Header()
-	if block.GasUsed().Cmp(usedGas) != 0 {
-		return ValidationError(fmt.Sprintf("gas used error (%v / %v)", block.GasUsed(), usedGas))
-	}
-	// Validate the received block's bloom with the one derived from the generated receipts.
-	// For valid blocks this should always validate to true.
-	rbloom := types.CreateBloom(receipts)
-	if rbloom != header.Bloom {
-		return fmt.Errorf("unable to replicate block's bloom=%x vs calculated bloom=%x", header.Bloom, rbloom)
-	}
-	// Tre receipt Trie's root (R = (Tr [[H1, R1], ... [Hn, R1]]))
-	receiptSha := types.DeriveSha(receipts)
-	if receiptSha != header.ReceiptHash {
-		return fmt.Errorf("invalid receipt root hash. received=%x calculated=%x", header.ReceiptHash, receiptSha)
-	}
-	// Validate the state root against the received state root and throw
-	// an error if they don't match.
-	if root := statedb.IntermediateRoot(); header.Root != root {
-		return fmt.Errorf("invalid merkle root: header=%x computed=%x", header.Root, root)
-	}
+	/*
+		header := block.Header()
+		if block.GasUsed().Cmp(usedGas) != 0 {
+			return ValidationError(fmt.Sprintf("gas used error (%v / %v)", block.GasUsed(), usedGas))
+		}
+		// Validate the received block's bloom with the one derived from the generated receipts.
+		// For valid blocks this should always validate to true.
+		rbloom := types.CreateBloom(receipts)
+		if rbloom != header.Bloom {
+			return fmt.Errorf("unable to replicate block's bloom=%x vs calculated bloom=%x", header.Bloom, rbloom)
+		}
+		// Tre receipt Trie's root (R = (Tr [[H1, R1], ... [Hn, R1]]))
+		receiptSha := types.DeriveSha(receipts)
+		if receiptSha != header.ReceiptHash {
+			return fmt.Errorf("invalid receipt root hash. received=%x calculated=%x", header.ReceiptHash, receiptSha)
+		}
+		// Validate the state root against the received state root and throw
+		// an error if they don't match.
+		if root := statedb.IntermediateRoot(); header.Root != root {
+			return fmt.Errorf("invalid merkle root: header=%x computed=%x", header.Root, root)
+		}
+
+		TODO: verify state for transactions that we are part of. E.g. transactions that we can decrypt.
+	*/
 	return nil
 }
 
