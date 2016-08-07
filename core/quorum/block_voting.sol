@@ -25,6 +25,9 @@ contract BlockVoting {
     // Collection of vote rounds.
 	Period[] periods;
 
+    // canonical hash must have as least voteThreshold votes before its considered valid
+	uint public voteThreshold;
+
 	// number of voters
 	uint public voterCount;
 
@@ -45,12 +48,18 @@ contract BlockVoting {
 		voterCount = 1;
 	}
 
+    // Set a new vote threshold. The canonical hash must have at least the given
+    // threshold number of votes before it's considered valid.
+	function setVoteThreshold(uint threshold) mustBeVoter {
+	    voteThreshold = threshold;
+	}
+
     // Make a vote to select a particular block as head for the previous head.
-    // Only senders that are added through the addVoter are allowed to make a
-    // vote.
+    // Only senders that are added through the addVoter are allowed to make a vote.
+    // TODO: discuss if we only allow 1 vote per voter (this can deadlock the system)
 	function vote(bytes32 hash) mustBeVoter {
 	    // start new period if this is the first transaction in the new block.
-		for( ;periods.length < block.number; ) {
+		if (periods.length < block.number) {
 		    periods.length++;
 		}
 
@@ -68,12 +77,14 @@ contract BlockVoting {
 	}
 
     // Get the "winning" block hash of the previous voting round.
+    // Ensure the "winning" block has at least voteThreshold votes.
 	function getCanonHash() constant returns(bytes32) {
 		Period period = periods[periods.length-1];
 
 		bytes32 best;
 		for(uint i = 0; i < period.indices.length; i++) {
-			if(period.entries[best] < period.entries[period.indices[i]]) {
+			if(period.entries[best] < period.entries[period.indices[i]]
+			&& period.entries[period.indices[i]] >= voteThreshold) {
 				best = period.indices[i];
 			}
 		}
