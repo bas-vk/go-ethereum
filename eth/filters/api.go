@@ -238,8 +238,16 @@ func (api *PublicFilterAPI) Logs(ctx context.Context, crit FilterCriteria) (*rpc
 	rpcSub := notifier.CreateSubscription()
 
 	go func() {
-		matchedLogs := make(chan []Log)
-		logsSub := api.events.SubscribeLogs(crit, matchedLogs)
+		var (
+			matchedLogs = make(chan []Log)
+			logsSub     *Subscription
+		)
+
+		if crit.FromBlock.Int64() == rpc.PendingBlockNumber.Int64() {
+			logsSub = api.events.SubscribePendingLogs(crit, matchedLogs)
+		} else {
+			logsSub = api.events.SubscribeLogs(crit, matchedLogs)
+		}
 
 		for {
 			select {
@@ -275,8 +283,9 @@ type FilterCriteria struct {
 // https://github.com/ethereum/wiki/wiki/JSON-RPC#eth_newfilter
 func (api *PublicFilterAPI) NewFilter(crit FilterCriteria) rpc.ID {
 	var (
-		logs    = make(chan []Log)
-		logsSub = api.events.SubscribeLogs(crit, logs)
+		matchedLogs = make(chan []Log)
+		logsSub     *Subscription
+		subType     = UnknownSubscription
 	)
 
 	if crit.FromBlock == nil {
@@ -286,14 +295,22 @@ func (api *PublicFilterAPI) NewFilter(crit FilterCriteria) rpc.ID {
 		crit.ToBlock = big.NewInt(rpc.LatestBlockNumber.Int64())
 	}
 
+	if crit.FromBlock.Int64() == rpc.PendingBlockNumber.Int64() {
+		logsSub = api.events.SubscribePendingLogs(crit, matchedLogs)
+		subType = PendingLogsSubscription
+	} else {
+		logsSub = api.events.SubscribeLogs(crit, matchedLogs)
+		subType = LogsSubscription
+	}
+
 	api.filtersMu.Lock()
-	api.filters[logsSub.ID] = &filter{typ: LogsSubscription, crit: crit, deadline: time.NewTimer(deadline), logs: make([]Log, 0), s: logsSub}
+	api.filters[logsSub.ID] = &filter{typ: subType, crit: crit, deadline: time.NewTimer(deadline), logs: make([]Log, 0), s: logsSub}
 	api.filtersMu.Unlock()
 
 	go func() {
 		for {
 			select {
-			case l := <-logs:
+			case l := <-matchedLogs:
 				api.filtersMu.Lock()
 				if f, found := api.filters[logsSub.ID]; found {
 					f.logs = append(f.logs, l...)
@@ -357,7 +374,7 @@ func (api *PublicFilterAPI) GetFilterLogs(id rpc.ID) []Log {
 	f, found := api.filters[id]
 	api.filtersMu.Unlock()
 
-	if !found || f.typ != LogsSubscription {
+	if !found || f.typ != LogsSubscription || f.typ != PendingLogsSubscription {
 		return []Log{}
 	}
 
@@ -437,13 +454,13 @@ func (args *FilterCriteria) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	if raw.From == nil || raw.From.Int64() < 0 {
+	if raw.From == nil {
 		args.FromBlock = big.NewInt(rpc.LatestBlockNumber.Int64())
 	} else {
 		args.FromBlock = big.NewInt(raw.From.Int64())
 	}
 
-	if raw.ToBlock == nil || raw.ToBlock.Int64() < 0 {
+	if raw.ToBlock == nil {
 		args.ToBlock = big.NewInt(rpc.LatestBlockNumber.Int64())
 	} else {
 		args.ToBlock = big.NewInt(raw.ToBlock.Int64())
