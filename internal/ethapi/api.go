@@ -498,7 +498,7 @@ func (s *PublicBlockChainAPI) doCall(ctx context.Context, args CallArgs, blockNr
 		return "0x", common.Big0, err
 	}
 	gp := new(core.GasPool).AddGas(common.MaxBig)
-	res, gas, err := core.ApplyMessage(vmenv, msg, gp)
+	res, gas, _, err := core.ApplyMessage(vmenv, msg, gp)
 	if err := vmError(); err != nil {
 		return "0x", common.Big0, err
 	}

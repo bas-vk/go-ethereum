@@ -127,11 +127,11 @@ func NewStateTransition(env vm.Environment, msg Message, gp *GasPool) *StateTran
 // the gas used (which includes gas refunds) and an error if it failed. An error always
 // indicates a core error meaning that the message would always fail for that particular
 // state and would never be accepted within a block.
-func ApplyMessage(env vm.Environment, msg Message, gp *GasPool) ([]byte, *big.Int, error) {
+func ApplyMessage(env vm.Environment, msg Message, gp *GasPool) ([]byte, *big.Int, bool, error) {
 	st := NewStateTransition(env, msg, gp)
 
-	ret, _, gasUsed, err := st.TransitionDb()
-	return ret, gasUsed, err
+	ret, _, gasUsed, outOfGas, err := st.TransitionDb()
+	return ret, gasUsed, outOfGas, err
 }
 
 func (self *StateTransition) from() (vm.Account, error) {
@@ -227,7 +227,7 @@ func (self *StateTransition) preCheck() (err error) {
 }
 
 // TransitionDb will move the state by applying the message against the given environment.
-func (self *StateTransition) TransitionDb() (ret []byte, requiredGas, usedGas *big.Int, err error) {
+func (self *StateTransition) TransitionDb() (ret []byte, requiredGas, usedGas *big.Int, outOfGas bool, err error) {
 	if err = self.preCheck(); err != nil {
 		return
 	}
@@ -238,7 +238,7 @@ func (self *StateTransition) TransitionDb() (ret []byte, requiredGas, usedGas *b
 	contractCreation := MessageCreatesContract(msg)
 	// Pay intrinsic gas
 	if err = self.useGas(IntrinsicGas(self.data, contractCreation, homestead)); err != nil {
-		return nil, nil, nil, InvalidTxError(err)
+		return nil, nil, nil, false, InvalidTxError(err)
 	}
 
 	vmenv := self.env
@@ -263,8 +263,10 @@ func (self *StateTransition) TransitionDb() (ret []byte, requiredGas, usedGas *b
 	}
 
 	if err != nil && IsValueTransferErr(err) {
-		return nil, nil, nil, InvalidTxError(err)
+		return nil, nil, nil, false, InvalidTxError(err)
 	}
+
+	outOfGas = (err == vm.OutOfGasError)
 
 	// We aren't interested in errors here. Errors returned by the VM are non-consensus errors and therefor shouldn't bubble up
 	if err != nil {
@@ -276,7 +278,7 @@ func (self *StateTransition) TransitionDb() (ret []byte, requiredGas, usedGas *b
 	self.refundGas()
 	self.state.AddBalance(self.env.Coinbase(), new(big.Int).Mul(self.gasUsed(), self.gasPrice))
 
-	return ret, requiredGas, self.gasUsed(), err
+	return ret, requiredGas, self.gasUsed(), outOfGas, err
 }
 
 func (self *StateTransition) refundGas() {
