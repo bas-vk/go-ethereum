@@ -110,8 +110,11 @@ func (r *Log) UnmarshalJSON(input []byte) error {
 		TxHash:    *dec.TxHash,
 		BlockHash: *dec.BlockHash,
 	}
-	if _, err := fmt.Sscanf(dec.Data, "0x%x", &declog.Data); err != nil {
-		return fmt.Errorf("invalid hex log data")
+
+	if len(dec.Data) != 2 || string(dec.Data) != "0x" { // data can be empty "0x"
+		if _, err := fmt.Sscanf(dec.Data, "0x%x", &declog.Data); err != nil {
+			return fmt.Errorf("invalid hex log data")
+		}
 	}
 	if _, err := fmt.Sscanf(dec.BlockNumber, "0x%x", &declog.BlockNumber); err != nil {
 		return fmt.Errorf("invalid hex log block number")
