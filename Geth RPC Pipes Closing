@@ -1,0 +1,26 @@
+Does anyone know what i should do .....
+Last part means pipes are being closed ... ethminer working just fine ....
+
+...
+I0825 15:18:29.634603 miner/worker.go:573] commit new work on block 2137202 with 78 txs & 0 uncles. Took 151.009ms
+I0825 15:18:31.282697 core/blockchain.go:963] imported 1 block(s) (0 queued 0 ignored) including 0 txs in 5.0004ms. #2137202 [2defd95a / 2defd95a]
+I0825 15:18:31.363702 miner/worker.go:573] commit new work on block 2137203 with 91 txs & 0 uncles. Took 79.005ms
+I0825 15:18:34.990909 eth/handler.go:295] Peer de471bccee3d0422 [eth/63]: timed out DAO fork-check, dropping
+I0825 15:18:56.778157 core/blockchain.go:963] imported 1 block(s) (0 queued 0 ignored) including 2 txs in 9.9987ms. #2137203 [8bd5d133 / 8bd5d133]
+I0825 15:18:57.204182 miner/worker.go:573] commit new work on block 2137204 with 208 txs & 0 uncles. Took 424.0241ms
+I0825 15:19:05.644665 core/blockchain.go:963] imported 1 block(s) (0 queued 0 ignored) including 9 txs in 22.0009ms. #2137204 [56645628 / 56645628]
+I0825 15:19:06.053690 miner/worker.go:573] commit new work on block 2137205 with 219 txs & 0 uncles. Took 407.0245ms
+I0825 15:19:08.501829 core/blockchain.go:963] imported 1 block(s) (0 queued 0 ignored) including 219 txs in 344.0204ms. #2137205 [be3fa0be / be3fa0be]
+I0825 15:19:08.773844 miner/worker.go:573] commit new work on block 2137206 with 115 txs & 0 uncles. Took 269.0155ms
+I0825 15:19:14.185155 core/blockchain.go:963] imported 1 block(s) (0 queued 0 ignored) including 110 txs in 129.0075ms. #2137206 [e4f1492a / e4f1492a]
+I0825 15:19:14.493172 miner/worker.go:573] commit new work on block 2137207 with 47 txs & 0 uncles. Took 306.0181ms
+I0825 15:19:39.488604 core/blockchain.go:963] imported 1 block(s) (0 queued 0 ignored) including 43 txs in 45.0032ms. #2137207 [d8d49707 / d8d49707]
+I0825 15:19:39.912628 miner/worker.go:573] commit new work on block 2137208 with 181 txs & 0 uncles. Took 421.0239ms
+I0825 15:19:50.665243 core/blockchain.go:963] imported 1 block(s) (0 queued 0 ignored) including 177 txs in 237.0138ms. #2137208 [6362cdf7 / 6362cdf7]
+I0825 15:19:50.802251 miner/worker.go:573] commit new work on block 2137209 with 83 txs & 0 uncles. Took 134.0069ms
+I0825 15:19:53.365398 core/blockchain.go:963] imported 1 block(s) (0 queued 0 ignored) including 83 txs in 94.0055ms. #2137209 [74315504 / 74315504]
+I0825 15:19:53.475404 miner/worker.go:573] commit new work on block 2137210 with 18 txs & 0 uncles. Took 107.0056ms
+I0825 15:20:24.323171 core/blockchain.go:963] imported 1 block(s) (0 queued 0 ignored) including 1 txs in 15.9994ms. #2137210 [5b7265cd / 5b7265cd]
+I0825 15:20:24.872203 miner/worker.go:573] commit new work on block 2137211 with 213 txs & 0 uncles. Took 547.0315ms
+I0828 20:16:04.778699 rpc/server.go:376] De pipes wordt gesloten.
+I0828 20:16:04.781700 rpc/server.go:376] De pipes wordt gesloten.
