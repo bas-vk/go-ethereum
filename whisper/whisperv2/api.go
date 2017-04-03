@@ -25,6 +25,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/.trash-cache/src/github.com/ethereum/go-ethereum/logger/glog"
+	"github.com/ethereum/go-ethereum/rpc"
+	"context"
 )
 
 // PublicWhisperAPI provides the whisper RPC service.
@@ -47,6 +50,65 @@ var whisperOffLineErr = new(whisperOfflineError)
 // NewPublicWhisperAPI create a new RPC whisper service.
 func NewPublicWhisperAPI(w *Whisper) *PublicWhisperAPI {
 	return &PublicWhisperAPI{w: w, messages: make(map[hexutil.Uint]*whisperFilter)}
+}
+
+// This is our subscription. To call this function the client should send the following RPC request:
+//
+// {"id": 0, "jsonrpc": "2.0", "method": "shh_subscribe", "params": ["mySubscription", 0x1234]}
+//
+// Subscriptions accept always a context and return the *rpc.Subscription, error pair. It can optionally accept
+// arguments, in this example arg0.
+//
+// To test the subscription to simplest way is to:
+// start the geth node with geth --ws --wsapi "shh" --wsorigins "*" --shh
+// open https://www.websocket.org/echo.html
+// connect to: ws://localhost:8546
+// send the request: {"id":0, "jsonrpc":"2.0", "method": "shh_subscribe", "params": ["mySubscription", "0x1234"]}
+// wait for events comming in :-)
+//
+// There are a couple of changes necessary to the RPC package. If you look at the notifications in the browser
+// you see they come from `eth_subscription` instead of `shh_subscription`. If you want to add subscription support
+// in whisper I can make the changes in the RPC package in a nice and clean way. But for now you have something that
+// you can use to test and play with.
+func (api *PublicWhisperAPI) MySubscription(ctx context.Context, arg0 hexutil.Uint) (*rpc.Subscription, error) {
+	// subscription require a full duplex connection. Some connections that the RPC interface offers are not full
+	// duplex (e.g. HTTP). If the interface has support for notifications (websockets and IPC) the rpc package will
+	// add the notifier object to the context. If it doesn't exists return an error.
+	notifier, supported := rpc.NotifierFromContext(ctx)
+	if !supported {
+		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
+	}
+
+	// create a RPC subscription, each subscription has a unique identifier and can be cancelled by the client
+	// when he send a shh_unsubsribe request with the subscription identifier as argument.
+	rpcSub := notifier.CreateSubscription()
+
+	// subscriptions return events that happen in the node to the client. Therefore our current approach is to
+	// start a go-routine for each subscription that waits for an event and posts it to the client.
+	go func() {
+		// in our example we use a simple ticker to generate events, in whisper this probably will be some
+		// kind of event bus.
+		ticker := time.NewTicker(time.Second)
+		// wait for events or act when the subscription is cancelled by the client or the connection is dropped.
+		for {
+			select {
+			case <- ticker.C:
+				// got an "event", send it to the client. Our event just pings back the argument
+				// together with a timestamp
+				now := time.Now()
+				notifier.Notify(rpcSub.ID, []interface{}{now, arg0})
+			case err := <-rpcSub.Err():
+				// something went wrong, or client does an shh_unsubscribe.
+				glog.Errorf("Got an error: %v", err)
+				return
+			case <-notifier.Closed():
+			// connection closed
+				return
+			}
+		}
+	}()
+
+	return rpcSub, nil
 }
 
 // Version returns the Whisper version this node offers.

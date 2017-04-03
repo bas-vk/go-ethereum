@@ -32,9 +32,8 @@ import (
 const (
 	jsonrpcVersion         = "2.0"
 	serviceMethodSeparator = "_"
-	subscribeMethod        = "eth_subscribe"
-	unsubscribeMethod      = "eth_unsubscribe"
-	notificationMethod     = "eth_subscription"
+	subscribeSuffix = "_subscribe"
+	unsubscribeSuffix = "_unsubscribe"
 )
 
 type jsonRequest struct {
@@ -164,7 +163,7 @@ func parseRequest(incomingMsg json.RawMessage) ([]rpcRequest, bool, Error) {
 	}
 
 	// subscribe are special, they will always use `subscribeMethod` as first param in the payload
-	if in.Method == subscribeMethod {
+	if strings.HasSuffix(in.Method, subscribeSuffix) {
 		reqs := []rpcRequest{{id: &in.Id, isPubSub: true}}
 		if len(in.Payload) > 0 {
 			// first param must be subscription name
@@ -175,16 +174,16 @@ func parseRequest(incomingMsg json.RawMessage) ([]rpcRequest, bool, Error) {
 			}
 
 			// all subscriptions are made on the eth service
-			reqs[0].service, reqs[0].method = "eth", subscribeMethod[0]
+			reqs[0].service, reqs[0].method = in.Method[:3], subscribeMethod[0]
 			reqs[0].params = in.Payload
 			return reqs, false, nil
 		}
 		return nil, false, &invalidRequestError{"Unable to parse subscription request"}
 	}
 
-	if in.Method == unsubscribeMethod {
+	if strings.HasSuffix(in.Method, unsubscribeSuffix) {
 		return []rpcRequest{{id: &in.Id, isPubSub: true,
-			method: unsubscribeMethod, params: in.Payload}}, false, nil
+			method: in.Method, params: in.Payload}}, false, nil
 	}
 
 	elems := strings.Split(in.Method, serviceMethodSeparator)
@@ -217,7 +216,7 @@ func parseBatchRequest(incomingMsg json.RawMessage) ([]rpcRequest, bool, Error) 
 		id := &in[i].Id
 
 		// subscribe are special, they will always use `subscribeMethod` as first param in the payload
-		if r.Method == subscribeMethod {
+		if strings.HasSuffix(r.Method, subscribeSuffix) {
 			requests[i] = rpcRequest{id: id, isPubSub: true}
 			if len(r.Payload) > 0 {
 				// first param must be subscription name
@@ -228,7 +227,7 @@ func parseBatchRequest(incomingMsg json.RawMessage) ([]rpcRequest, bool, Error) 
 				}
 
 				// all subscriptions are made on the eth service
-				requests[i].service, requests[i].method = "eth", subscribeMethod[0]
+				requests[i].service, requests[i].method = r.Method[:3], subscribeMethod[0]
 				requests[i].params = r.Payload
 				continue
 			}
@@ -236,8 +235,8 @@ func parseBatchRequest(incomingMsg json.RawMessage) ([]rpcRequest, bool, Error) 
 			return nil, true, &invalidRequestError{"Unable to parse (un)subscribe request arguments"}
 		}
 
-		if r.Method == unsubscribeMethod {
-			requests[i] = rpcRequest{id: id, isPubSub: true, method: unsubscribeMethod, params: r.Payload}
+		if strings.HasSuffix(r.Method, unsubscribeSuffix) {
+			requests[i] = rpcRequest{id: id, isPubSub: true, method: r.Method, params: r.Payload}
 			continue
 		}
 
@@ -327,13 +326,23 @@ func (c *jsonCodec) CreateErrorResponseWithInfo(id interface{}, err Error, info 
 // CreateNotification will create a JSON-RPC notification with the given subscription id and event as params.
 func (c *jsonCodec) CreateNotification(subid string, event interface{}) interface{} {
 	if isHexNum(reflect.TypeOf(event)) {
-		return &jsonNotification{Version: jsonrpcVersion, Method: notificationMethod,
+		return &jsonNotification{Version: jsonrpcVersion, Method: "eth_subscription",
 			Params: jsonSubscription{Subscription: subid, Result: fmt.Sprintf(`%#x`, event)}}
 	}
 
-	return &jsonNotification{Version: jsonrpcVersion, Method: notificationMethod,
+	return &jsonNotification{Version: jsonrpcVersion, Method: "eth_subscription",
 		Params: jsonSubscription{Subscription: subid, Result: event}}
 }
+//
+//func (c *jsonCodec) CreateWhisperNotification(subid string, event interface{}) interface{} {
+//	if isHexNum(reflect.TypeOf(event)) {
+//		return &jsonNotification{Version: jsonrpcVersion, Method: "shh_subscription",
+//			Params: jsonSubscription{Subscription: subid, Result: fmt.Sprintf(`%#x`, event)}}
+//	}
+//
+//	return &jsonNotification{Version: jsonrpcVersion, Method: "shh_subscription",
+//		Params: jsonSubscription{Subscription: subid, Result: event}}
+//}
 
 // Write message to client
 func (c *jsonCodec) Write(res interface{}) error {

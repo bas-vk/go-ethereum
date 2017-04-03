@@ -373,7 +373,7 @@ func (c *Client) EthSubscribe(ctx context.Context, channel interface{}, args ...
 		return nil, ErrNotificationsUnsupported
 	}
 
-	msg, err := c.newMessage(subscribeMethod, args...)
+	msg, err := c.newMessage("eth_subscribe", args...)
 	if err != nil {
 		return nil, err
 	}
@@ -575,7 +575,7 @@ func (c *Client) closeRequestOps(err error) {
 }
 
 func (c *Client) handleNotification(msg *jsonrpcMessage) {
-	if msg.Method != notificationMethod {
+	if msg.Method != "eth_subscribe" {
 		log.Debug(fmt.Sprint("dropping non-subscription message: ", msg))
 		return
 	}
@@ -774,5 +774,5 @@ func (sub *ClientSubscription) unmarshal(result json.RawMessage) (interface{}, e
 
 func (sub *ClientSubscription) requestUnsubscribe() error {
 	var result interface{}
-	return sub.client.Call(&result, unsubscribeMethod, sub.subid)
+	return sub.client.Call(&result, "eth_unsubscribe", sub.subid)
 }

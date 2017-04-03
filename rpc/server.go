@@ -26,6 +26,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/log"
 	"gopkg.in/fatih/set.v0"
+	"strings"
 )
 
 const (
@@ -412,7 +413,7 @@ func (s *Server) readRequest(codec ServerCodec) ([]*serverRequest, bool, Error) 
 			continue
 		}
 
-		if r.isPubSub && r.method == unsubscribeMethod {
+		if r.isPubSub && strings.HasSuffix(r.method, unsubscribeSuffix) {
 			requests[i] = &serverRequest{id: r.id, isUnsubscribe: true}
 			argTypes := []reflect.Type{reflect.TypeOf("")} // expect subscription id as first arg
 			if args, err := codec.ParseRequestArguments(argTypes, r.params); err == nil {
@@ -441,7 +442,7 @@ func (s *Server) readRequest(codec ServerCodec) ([]*serverRequest, bool, Error) 
 					}
 				}
 			} else {
-				requests[i] = &serverRequest{id: r.id, err: &methodNotFoundError{subscribeMethod, r.method}}
+				requests[i] = &serverRequest{id: r.id, err: &methodNotFoundError{"eth_subscribe", r.method}}
 			}
 			continue
 		}
