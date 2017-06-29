@@ -27,7 +27,6 @@ var Modules = map[string]string{
 	"net":        Net_JS,
 	"personal":   Personal_JS,
 	"rpc":        RPC_JS,
-	"shh":        Shh_JS,
 	"swarmfs":    SWARMFS_JS,
 	"txpool":     TxPool_JS,
 }
@@ -518,129 +517,6 @@ web3._extend({
 			name: 'modules',
 			getter: 'rpc_modules'
 		})
-	]
-});
-`
-
-const Shh_JS = `
-web3._extend({
-	property: 'shh',
-	methods: [
-		new web3._extend.Method({
-			name: 'setMaxMessageLength',
-			call: 'shh_setMaxMessageLength',
-			params: 1
-		}),
-		new web3._extend.Method({
-			name: 'setMinimumPoW',
-			call: 'shh_setMinimumPoW',
-			params: 1
-		}),
-		new web3._extend.Method({
-			name: 'markTrustedPeer',
-			call: 'shh_markTrustedPeer',
-			params: 1
-		}),
-		new web3._extend.Method({
-			name: 'hasKeyPair',
-			call: 'shh_hasKeyPair',
-			params: 1
-		}),
-		new web3._extend.Method({
-			name: 'deleteKeyPair',
-			call: 'shh_deleteKeyPair',
-			params: 1
-		}),
-		new web3._extend.Method({
-			name: 'newKeyPair',
-			call: 'shh_newKeyPair'
-		}),
-		new web3._extend.Method({
-			name: 'getPublicKey',
-			call: 'shh_getPublicKey',
-			params: 1
-		}),
-		new web3._extend.Method({
-			name: 'getPrivateKey',
-			call: 'shh_getPrivateKey',
-			params: 1
-		}),
-		new web3._extend.Method({
-			name: 'newSymKey',
-			call: 'shh_newSymKey',
-		}),
-		new web3._extend.Method({
-			name: 'addSymKey',
-			call: 'shh_addSymKey',
-			params: 1
-		}),
-		new web3._extend.Method({
-			name: 'generateSymKeyFromPassword',
-			call: 'shh_generateSymKeyFromPassword',
-			params: 1
-		}),
-		new web3._extend.Method({
-			name: 'hasSymKey',
-			call: 'shh_hasSymKey',
-			params: 1
-		}),
-		new web3._extend.Method({
-			name: 'getSymKey',
-			call: 'shh_getSymKey',
-			params: 1
-		}),
-		new web3._extend.Method({
-			name: 'deleteSymKey',
-			call: 'shh_deleteSymKey',
-			params: 1
-		}),
-		new web3._extend.Method({
-			name: 'subscribe',
-			call: 'shh_subscribe',
-			params: 2
-		}),
-		new web3._extend.Method({
-			name: 'unsubscribe',
-			call: 'shh_unsubscribe',
-			params: 1
-		}),
-		new web3._extend.Method({
-			name: 'post',
-			call: 'shh_post',
-			params: 1
-		}),
-		new web3._extend.Method({
-			name: 'publicKey',
-			call: 'shh_getPublicKey',
-			params: 1
-		}),
-		new web3._extend.Method({
-			name: 'getFilterMessages',
-			call: 'shh_getFilterMessages',
-			params: 1
-		}),
-		new web3._extend.Method({
-			name: 'deleteMessageFilter',
-			call: 'shh_deleteMessageFilter',
-			params: 1
-		}),
-		new web3._extend.Method({
-			name: 'newMessageFilter',
-			call: 'shh_newMessageFilter',
-			params: 1
-		})
-	],
-	properties:
-	[
-		new web3._extend.Property({
-			name: 'version',
-			getter: 'shh_version',
-			outputFormatter: web3._extend.utils.toDecimal
-		}),
-		new web3._extend.Property({
-			name: 'info',
-			getter: 'shh_info'
-		}),
 	]
 });
 `
