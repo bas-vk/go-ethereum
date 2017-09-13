@@ -103,7 +103,7 @@ func (api *PublicFilterAPI) timeoutLoop() {
 // https://github.com/ethereum/wiki/wiki/JSON-RPC#eth_newpendingtransactionfilter
 func (api *PublicFilterAPI) NewPendingTransactionFilter() rpc.ID {
 	var (
-		pendingTxs   = make(chan common.Hash)
+		pendingTxs   = make(chan *types.Transaction)
 		pendingTxSub = api.events.SubscribePendingTxEvents(pendingTxs)
 	)
 
@@ -114,10 +114,10 @@ func (api *PublicFilterAPI) NewPendingTransactionFilter() rpc.ID {
 	go func() {
 		for {
 			select {
-			case ph := <-pendingTxs:
+			case tx := <-pendingTxs:
 				api.filtersMu.Lock()
 				if f, found := api.filters[pendingTxSub.ID]; found {
-					f.hashes = append(f.hashes, ph)
+					f.hashes = append(f.hashes, tx.Hash())
 				}
 				api.filtersMu.Unlock()
 			case <-pendingTxSub.Err():
@@ -143,13 +143,13 @@ func (api *PublicFilterAPI) NewPendingTransactions(ctx context.Context) (*rpc.Su
 	rpcSub := notifier.CreateSubscription()
 
 	go func() {
-		txHashes := make(chan common.Hash)
-		pendingTxSub := api.events.SubscribePendingTxEvents(txHashes)
+		txs := make(chan *types.Transaction)
+		pendingTxSub := api.events.SubscribePendingTxEvents(txs)
 
 		for {
 			select {
-			case h := <-txHashes:
-				notifier.Notify(rpcSub.ID, h)
+			case tx := <-txs:
+				notifier.Notify(rpcSub.ID, tx)
 			case <-rpcSub.Err():
 				pendingTxSub.Unsubscribe()
 				return

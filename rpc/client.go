@@ -455,7 +455,9 @@ func (c *Client) EthSubscribe(ctx context.Context, channel interface{}, args ...
 // before considering the subscriber dead. The subscription Err channel will receive
 // ErrSubscriptionQueueOverflow. Use a sufficiently large buffer on the channel or ensure
 // that the channel usually has at least one reader to prevent this issue.
-func (c *Client) EthSubscribeWithPolling(ctx context.Context, channel interface{}, method, pollMethod string, args ...interface{}) (*ClientSubscription, error) {
+func (c *Client) EthSubscribeWithPolling(ctx context.Context, channel interface{},
+	method, pollMethod, deleteFilterMethod string, args ...interface{}) (*ClientSubscription, error) {
+
 	chanVal := reflect.ValueOf(channel)
 	if chanVal.Kind() != reflect.Chan || chanVal.Type().ChanDir()&reflect.SendDir == 0 {
 		panic("first argument to EthSubscribeWithPolling must be a writable channel")
@@ -471,7 +473,7 @@ func (c *Client) EthSubscribeWithPolling(ctx context.Context, channel interface{
 
 	sub := newClientSubscription(c, "eth", chanVal)
 	sub.subid = pollID
-	go sub.poll(pollMethod, pollID)
+	go sub.poll(pollMethod, deleteFilterMethod, pollID)
 
 	return sub, nil
 }
@@ -849,8 +851,8 @@ func (sub *ClientSubscription) forward() (err error, unsubscribeServer bool) {
 	}
 }
 
-func (sub *ClientSubscription) poll(method string, id string) {
-	ticker := time.NewTicker(time.Second)
+func (sub *ClientSubscription) poll(pollMethod, deleteFilterMethod string, id string) {
+	ticker := time.NewTimer(time.Second)
 	defer ticker.Stop()
 
 	go sub.start()
@@ -859,10 +861,7 @@ func (sub *ClientSubscription) poll(method string, id string) {
 		select {
 		case <-ticker.C:
 			var results []json.RawMessage
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			err := sub.client.CallContext(ctx, &results, sub.namespace+"_"+method, id)
-			cancel()
-
+			err := sub.client.Call(&results, sub.namespace+"_"+pollMethod, id)
 			if err != nil {
 				sub.quitWithError(err, true)
 				return
@@ -873,7 +872,10 @@ func (sub *ClientSubscription) poll(method string, id string) {
 					sub.quitWithError(errors.New("could not deliver result"), false)
 				}
 			}
+			ticker.Reset(time.Second)
 		case <-sub.quit:
+			var ignored interface{}
+			sub.client.Call(&ignored, sub.namespace+"_"+deleteFilterMethod, id)
 			return
 		}
 	}
@@ -886,10 +888,9 @@ func (sub *ClientSubscription) unmarshal(result json.RawMessage) (interface{}, e
 }
 
 func (sub *ClientSubscription) requestUnsubscribe() error {
-	method := unsubscribeMethodSuffix
 	if sub.client.isHTTP {
-		method = uninstallFilterMethodSuffix
+		return nil // handled in poll loop
 	}
 	var result interface{}
-	return sub.client.Call(&result, sub.namespace+method, sub.subid)
+	return sub.client.Call(&result, sub.namespace+unsubscribeMethodSuffix, sub.subid)
 }

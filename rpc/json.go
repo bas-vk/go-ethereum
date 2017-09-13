@@ -30,12 +30,12 @@ import (
 )
 
 const (
-	jsonrpcVersion           = "2.0"
-	serviceMethodSeparator   = "_"
-	subscribeMethodSuffix    = "_subscribe"
-	unsubscribeMethodSuffix  = "_unsubscribe"
+	jsonrpcVersion              = "2.0"
+	serviceMethodSeparator      = "_"
+	subscribeMethodSuffix       = "_subscribe"
+	unsubscribeMethodSuffix     = "_unsubscribe"
 	uninstallFilterMethodSuffix = "_uninstallFilter"
-	notificationMethodSuffix = "_subscription"
+	notificationMethodSuffix    = "_subscription"
 )
 
 type jsonRequest struct {

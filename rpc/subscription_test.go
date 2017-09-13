@@ -57,7 +57,9 @@ func (s *NotificationTestService) PollSubscription(ctx context.Context, n, val i
 
 	s.mu.Lock()
 	if s.pollSubs == nil {
-		s.pollSubs = make(map[ID][]int)
+		s.pollSubs = map[ID][]int{
+			subID: []int{},
+		}
 	}
 	s.mu.Unlock()
 
@@ -82,6 +84,18 @@ func (s *NotificationTestService) GetPollSubscriptionChanges(ctx context.Context
 		return values, nil
 	}
 	return nil, fmt.Errorf("subscription %s not found", subID)
+}
+
+func (s *NotificationTestService) DeletePollSubscription(ctx context.Context, subID ID) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, found := s.pollSubs[subID]
+	if found {
+		delete(s.pollSubs, subID)
+	}
+
+	return found
 }
 
 func (s *NotificationTestService) SomeSubscription(ctx context.Context, n, val int) (*Subscription, error) {

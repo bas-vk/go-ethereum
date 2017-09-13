@@ -29,6 +29,6 @@ var (
 	_ = ethereum.GasPricer(&Client{})
 	_ = ethereum.LogFilterer(&Client{})
 	_ = ethereum.PendingStateReader(&Client{})
-	// _ = ethereum.PendingStateEventer(&Client{})
+	//_ = ethereum.PendingStateEventer(&Client{})
 	_ = ethereum.PendingContractCaller(&Client{})
 )

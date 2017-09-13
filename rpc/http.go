@@ -83,6 +83,7 @@ func (c *Client) sendHTTP(ctx context.Context, op *requestOp, msg interface{}) e
 	if err != nil {
 		return err
 	}
+
 	defer respBody.Close()
 	var respmsg jsonrpcMessage
 

@@ -252,6 +252,7 @@ func (ec *Client) SyncProgress(ctx context.Context) (*ethereum.SyncProgress, err
 // on the given channel.
 func (ec *Client) SubscribeNewHead(ctx context.Context, ch chan<- *types.Header) (ethereum.Subscription, error) {
 	return ec.c.EthSubscribe(ctx, ch, "newHeads", map[string]struct{}{})
+	// TODO: enable fall back to polling, filter currently only returns block hashes
 }
 
 // State Access
@@ -311,8 +312,13 @@ func (ec *Client) FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]typ
 }
 
 // SubscribeFilterLogs subscribes to the results of a streaming filter query.
+// If subscriptions aren't supported it will fall back to polling.
 func (ec *Client) SubscribeFilterLogs(ctx context.Context, q ethereum.FilterQuery, ch chan<- types.Log) (ethereum.Subscription, error) {
-	return ec.c.EthSubscribe(ctx, ch, "logs", toFilterArg(q))
+	sub, err := ec.c.EthSubscribe(ctx, ch, "logs", toFilterArg(q))
+	if err == rpc.ErrNotificationsUnsupported {
+		sub, err = ec.c.EthSubscribeWithPolling(ctx, ch, "newFilter", "getFilterChanges", "uninstallFilter", toFilterArg(q))
+	}
+	return sub, err
 }
 
 func toFilterArg(q ethereum.FilterQuery) interface{} {

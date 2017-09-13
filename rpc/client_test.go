@@ -343,7 +343,8 @@ func TestClientNotificationStorm(t *testing.T) {
 }
 
 func TestClientHttpSubscribe(t *testing.T) {
-	server := newTestServer("eth", new(NotificationTestService))
+	service := new(NotificationTestService)
+	server := newTestServer("eth", service)
 	defer server.Stop()
 
 	client, hs := httpTestClient(server, "http", nil)
@@ -357,11 +358,16 @@ func TestClientHttpSubscribe(t *testing.T) {
 
 	// Subscribe on the server, it should fall back to polling internally simulating the pub/sub model.
 	nc := make(chan int)
-	sub, err := client.EthSubscribeWithPolling(ctx, nc, "pollSubscription", "getPollSubscriptionChanges", count, offset)
+	sub, err := client.EthSubscribeWithPolling(ctx, nc, "pollSubscription", "getPollSubscriptionChanges", "deletePollSubscription", count, offset)
 	if err != nil {
 		t.Fatal("can't subscribe:", err)
 	}
-	defer sub.Unsubscribe()
+
+	service.mu.Lock()
+	if _, found := service.pollSubs[ID(sub.subid)]; !found {
+		t.Fatalf("Poll subscription %s not found", sub.subid)
+	}
+	service.mu.Unlock()
 
 	// Process each notification, try to run a call in between each of them.
 	for i := 0; i < count; i++ {
@@ -374,6 +380,21 @@ func TestClientHttpSubscribe(t *testing.T) {
 			t.Fatalf("(%d/%d) got unexpected error %q", i, count, err)
 		}
 	}
+
+	sub.Unsubscribe()
+
+	// ensure that the poll uninstall method is called after unsubscribe
+	for i := 0; i < 10; i++ {
+		service.mu.Lock()
+		if _, found := service.pollSubs[ID(sub.subid)]; found {
+			return
+		}
+		service.mu.Unlock()
+
+		time.Sleep(time.Second)
+	}
+
+	t.Fatalf("Poll subscription not deleted")
 }
 
 func TestClientHTTP(t *testing.T) {
