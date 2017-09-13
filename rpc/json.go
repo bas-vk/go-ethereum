@@ -34,6 +34,7 @@ const (
 	serviceMethodSeparator   = "_"
 	subscribeMethodSuffix    = "_subscribe"
 	unsubscribeMethodSuffix  = "_unsubscribe"
+	uninstallFilterMethodSuffix = "_uninstallFilter"
 	notificationMethodSuffix = "_subscription"
 )
 

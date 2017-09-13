@@ -424,6 +424,7 @@ func (c *Client) EthSubscribe(ctx context.Context, channel interface{}, args ...
 	if err != nil {
 		return nil, err
 	}
+
 	op := &requestOp{
 		ids:  []json.RawMessage{msg.ID},
 		resp: make(chan *jsonrpcMessage),
@@ -438,7 +439,41 @@ func (c *Client) EthSubscribe(ctx context.Context, channel interface{}, args ...
 	if _, err := op.wait(ctx); err != nil {
 		return nil, err
 	}
+
 	return op.sub, nil
+}
+
+// EthSubscribeWithPolling mimics subscriptions by polling for events. This simulates
+// subscriptions over request/reply interfaces such as http. Fetched events are send
+// as notifications to the given channel. The element type of the channel must match
+// the expected type of the fetched events.
+//
+// The context argument cancels the RPC request that sets up the subscription but has no
+// effect on the subscription after EthSubscribe has returned.
+//
+// Slow subscribers will be dropped eventually. Client buffers up to 8000 notifications
+// before considering the subscriber dead. The subscription Err channel will receive
+// ErrSubscriptionQueueOverflow. Use a sufficiently large buffer on the channel or ensure
+// that the channel usually has at least one reader to prevent this issue.
+func (c *Client) EthSubscribeWithPolling(ctx context.Context, channel interface{}, method, pollMethod string, args ...interface{}) (*ClientSubscription, error) {
+	chanVal := reflect.ValueOf(channel)
+	if chanVal.Kind() != reflect.Chan || chanVal.Type().ChanDir()&reflect.SendDir == 0 {
+		panic("first argument to EthSubscribeWithPolling must be a writable channel")
+	}
+	if chanVal.IsNil() {
+		panic("channel given to EthSubscribeWithPolling must not be nil")
+	}
+
+	var pollID string
+	if err := c.CallContext(ctx, &pollID, "eth_"+method, args...); err != nil {
+		return nil, err
+	}
+
+	sub := newClientSubscription(c, "eth", chanVal)
+	sub.subid = pollID
+	go sub.poll(pollMethod, pollID)
+
+	return sub, nil
 }
 
 func (c *Client) newMessage(method string, paramsIn ...interface{}) (*jsonrpcMessage, error) {
@@ -666,7 +701,6 @@ func (c *Client) handleResponse(msg *jsonrpcMessage) {
 }
 
 // Reading happens on a dedicated goroutine.
-
 func (c *Client) read(conn net.Conn) error {
 	var (
 		buf json.RawMessage
@@ -815,6 +849,36 @@ func (sub *ClientSubscription) forward() (err error, unsubscribeServer bool) {
 	}
 }
 
+func (sub *ClientSubscription) poll(method string, id string) {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	go sub.start()
+
+	for {
+		select {
+		case <-ticker.C:
+			var results []json.RawMessage
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			err := sub.client.CallContext(ctx, &results, sub.namespace+"_"+method, id)
+			cancel()
+
+			if err != nil {
+				sub.quitWithError(err, true)
+				return
+			}
+
+			for _, result := range results {
+				if !sub.deliver(result) {
+					sub.quitWithError(errors.New("could not deliver result"), false)
+				}
+			}
+		case <-sub.quit:
+			return
+		}
+	}
+}
+
 func (sub *ClientSubscription) unmarshal(result json.RawMessage) (interface{}, error) {
 	val := reflect.New(sub.etype)
 	err := json.Unmarshal(result, val.Interface())
@@ -822,6 +886,10 @@ func (sub *ClientSubscription) unmarshal(result json.RawMessage) (interface{}, e
 }
 
 func (sub *ClientSubscription) requestUnsubscribe() error {
+	method := unsubscribeMethodSuffix
+	if sub.client.isHTTP {
+		method = uninstallFilterMethodSuffix
+	}
 	var result interface{}
-	return sub.client.Call(&result, sub.namespace+unsubscribeMethodSuffix, sub.subid)
+	return sub.client.Call(&result, sub.namespace+method, sub.subid)
 }

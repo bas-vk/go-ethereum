@@ -32,6 +32,8 @@ type NotificationTestService struct {
 
 	gotHangSubscriptionReq  chan struct{}
 	unblockHangSubscription chan struct{}
+
+	pollSubs map[ID][]int
 }
 
 func (s *NotificationTestService) Echo(i int) int {
@@ -48,6 +50,38 @@ func (s *NotificationTestService) Unsubscribe(subid string) {
 	s.mu.Lock()
 	s.unsubscribed = true
 	s.mu.Unlock()
+}
+
+func (s *NotificationTestService) PollSubscription(ctx context.Context, n, val int) (string, error) {
+	subID := NewID()
+
+	s.mu.Lock()
+	if s.pollSubs == nil {
+		s.pollSubs = make(map[ID][]int)
+	}
+	s.mu.Unlock()
+
+	go func() {
+		for i := 0; i < n; i++ {
+			time.Sleep(time.Second)
+			s.mu.Lock()
+			s.pollSubs[subID] = append(s.pollSubs[subID], val+i)
+			s.mu.Unlock()
+		}
+	}()
+
+	return string(subID), nil
+}
+
+func (s *NotificationTestService) GetPollSubscriptionChanges(ctx context.Context, subID ID) ([]int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if values, ok := s.pollSubs[subID]; ok {
+		s.pollSubs[subID] = nil
+		return values, nil
+	}
+	return nil, fmt.Errorf("subscription %s not found", subID)
 }
 
 func (s *NotificationTestService) SomeSubscription(ctx context.Context, n, val int) (*Subscription, error) {

@@ -342,6 +342,40 @@ func TestClientNotificationStorm(t *testing.T) {
 	doTest(10000, true)
 }
 
+func TestClientHttpSubscribe(t *testing.T) {
+	server := newTestServer("eth", new(NotificationTestService))
+	defer server.Stop()
+
+	client, hs := httpTestClient(server, "http", nil)
+	defer hs.Close()
+	defer client.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	count, offset := 5, 123
+
+	// Subscribe on the server, it should fall back to polling internally simulating the pub/sub model.
+	nc := make(chan int)
+	sub, err := client.EthSubscribeWithPolling(ctx, nc, "pollSubscription", "getPollSubscriptionChanges", count, offset)
+	if err != nil {
+		t.Fatal("can't subscribe:", err)
+	}
+	defer sub.Unsubscribe()
+
+	// Process each notification, try to run a call in between each of them.
+	for i := 0; i < count; i++ {
+		select {
+		case val := <-nc:
+			if val != offset+i {
+				t.Fatalf("(%d/%d) unexpected value %d", i, count, val)
+			}
+		case err := <-sub.Err():
+			t.Fatalf("(%d/%d) got unexpected error %q", i, count, err)
+		}
+	}
+}
+
 func TestClientHTTP(t *testing.T) {
 	server := newTestServer("service", new(Service))
 	defer server.Stop()
