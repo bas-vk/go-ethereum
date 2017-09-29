@@ -622,7 +622,8 @@ func storageRangeAt(st state.Trie, start []byte, maxResult int) StorageRangeResu
 	it := trie.NewIterator(st.NodeIterator(start))
 	result := StorageRangeResult{Storage: storageMap{}}
 	for i := 0; i < maxResult && it.Next(); i++ {
-		e := storageEntry{Value: common.BytesToHash(it.Value)}
+		_, val, _, _ := rlp.Split(bytes.TrimLeft(it.Value, "\x00"))
+		e := storageEntry{Value: common.BytesToHash(val)}
 		if preimage := st.GetKey(it.Key); preimage != nil {
 			preimage := common.BytesToHash(preimage)
 			e.Key = &preimage
